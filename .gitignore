@@ -91,7 +91,7 @@ temp/
 
 # Audio test files (large)
 *.wav
-*.mp3
+#*.mp3
 *.ogg
 *.flac
 *.m4a

@@ -13,17 +13,17 @@ This application provides an automated pipeline for:
 
 ```
 ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────────┐
-│   Audio Upload  │ → │ Azure Functions  │ → │ Speech to Text API  │
+│   Audio Upload  │ →  │ Azure Functions  │ →  │ Speech to Text API  │
 │ (Blob Storage)  │    │  (Orchestrator)  │    │ (Transcription)     │
 └─────────────────┘    └──────────────────┘    └─────────────────────┘
                                 ↓
 ┌─────────────────────────────────────────────────────────────────────┐
-│                     Text Analytics for Health                        │
-│           (Medical Entity Extraction & Analysis)                     │
+│                     Text Analytics for Health                       │
+│           (Medical Entity Extraction & Analysis)                    │
 └─────────────────────────────────────────────────────────────────────┘
                                 ↓
 ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────────┐
-│   Results API   │ ← │   Cosmos DB      │ ← │    JSON Processing   │
+│   Results API   │ ←  │   Cosmos DB      │ ←  │    JSON Processing  │
 │  (Web/Mobile)   │    │ (HIPAA Storage)  │    │ (Structured Data)   │
 └─────────────────┘    └──────────────────┘    └─────────────────────┘
 ```
