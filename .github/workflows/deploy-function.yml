@@ -22,13 +22,14 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Install dependencies
+      - name: Install dependencies locally
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt --target=".python_packages/lib/site-packages"
 
       - name: Create deployment package
         run: |
+          # Include .python_packages with dependencies
           zip -r deployment.zip . \
             -x "*.git*" \
             -x "*__pycache__*" \
@@ -37,39 +38,41 @@ jobs:
             -x "infra/*" \
             -x "*.md" \
             -x "deployment.zip" \
-            -x ".github/*"
+            -x ".github/*" \
+            -x "venv/*" \
+            -x ".venv/*"
+          
+          echo "Package contents:"
+          unzip -l deployment.zip | head -50
 
       - name: Login to Azure
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Get Function App publish profile
-        id: publishprofile
+      - name: Deploy via Azure CLI
         run: |
-          CREDS=$(az functionapp deployment list-publishing-credentials \
+          # Use publish command which handles Python better
+          az functionapp deployment source config-zip \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --name ${{ env.AZURE_FUNCTIONAPP_NAME }} \
+            --src deployment.zip
+          
+          echo "Waiting for deployment to complete..."
+          sleep 60
+          
+      - name: Restart Function App
+        run: |
+          az functionapp restart \
+            --name ${{ env.AZURE_FUNCTIONAPP_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }}
+          
+      - name: Verify deployment
+        run: |
+          echo "Checking function list..."
+          sleep 30
+          az functionapp function list \
             --name ${{ env.AZURE_FUNCTIONAPP_NAME }} \
             --resource-group ${{ env.RESOURCE_GROUP }} \
-            --query "{username:publishingUserName, password:publishingPassword}" -o tsv)
-          USERNAME=$(echo "$CREDS" | cut -f1)
-          PASSWORD=$(echo "$CREDS" | cut -f2)
-          echo "::add-mask::$PASSWORD"
-          echo "scm_username=$USERNAME" >> $GITHUB_OUTPUT
-          echo "scm_password=$PASSWORD" >> $GITHUB_OUTPUT
-
-      - name: Deploy via Kudu ZIP Deploy API
-        run: |
-          curl -X POST \
-            --user "${{ steps.publishprofile.outputs.scm_username }}:${{ steps.publishprofile.outputs.scm_password }}" \
-            --data-binary @deployment.zip \
-            -H "Content-Type: application/zip" \
-            "https://${{ env.AZURE_FUNCTIONAPP_NAME }}.scm.azurewebsites.net/api/zipdeploy?isAsync=true"
-          
-          echo "Deployment initiated. Checking status..."
-          sleep 30
-          
-          # Check deployment status
-          curl -s \
-            --user "${{ steps.publishprofile.outputs.scm_username }}:${{ steps.publishprofile.outputs.scm_password }}" \
-            "https://${{ env.AZURE_FUNCTIONAPP_NAME }}.scm.azurewebsites.net/api/deployments" | head -c 500
+            -o table || echo "Functions may still be loading..."
 
