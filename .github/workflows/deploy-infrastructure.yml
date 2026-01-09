@@ -1,0 +1,75 @@
+# GitHub Actions workflow for deploying Azure Infrastructure via Bicep
+name: Deploy Infrastructure
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'infra/**'
+      - '.github/workflows/deploy-infrastructure.yml'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy (dev, staging, prod)'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+
+env:
+  AZURE_RESOURCE_GROUP: 'speech-demo-west'
+  AZURE_LOCATION: 'westus2'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    name: Validate Bicep Template
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Validate Bicep template
+        uses: azure/arm-deploy@v2
+        with:
+          resourceGroupName: ${{ env.AZURE_RESOURCE_GROUP }}
+          template: ./infra/main.bicep
+          parameters: environment=${{ github.event.inputs.environment || 'dev' }}
+          deploymentMode: Validate
+
+  deploy:
+    runs-on: ubuntu-latest
+    name: Deploy Infrastructure
+    needs: validate
+    environment: ${{ github.event.inputs.environment || 'dev' }}
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Deploy Bicep template
+        uses: azure/arm-deploy@v2
+        with:
+          resourceGroupName: ${{ env.AZURE_RESOURCE_GROUP }}
+          template: ./infra/main.bicep
+          parameters: environment=${{ github.event.inputs.environment || 'dev' }}
+          deploymentName: 'github-${{ github.run_number }}'
+
+      - name: Output deployment results
+        run: |
+          echo "Deployment completed successfully!"
+          echo "Check the Azure Portal for resource details."

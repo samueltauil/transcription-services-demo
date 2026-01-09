@@ -62,7 +62,7 @@ venv.bak/
 # Azure Functions
 local.settings.json
 .python_packages/
-.vscode/
+
 bin/
 obj/
 
@@ -101,3 +101,5 @@ temp/
 *.pem
 *.key
 secrets/
+
+.venv-1

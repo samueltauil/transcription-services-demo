@@ -3,7 +3,11 @@
  */
 
 // API Configuration
-const API_BASE_URL = '/api';
+// Use relative path when running locally or when API is linked to Static Web App
+// Use absolute URL when API is hosted separately on Azure Functions
+const API_BASE_URL = window.location.hostname === 'localhost' 
+    ? '/api' 
+    : 'https://healthtranscriptiondev-func-si35ec.azurewebsites.net/api';
 
 // State
 let currentJobId = null;

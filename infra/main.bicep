@@ -133,7 +133,7 @@ resource languageService 'Microsoft.CognitiveServices/accounts@2023-10-01-previe
   location: location
   kind: 'TextAnalytics'
   sku: {
-    name: 'S'
+    name: 'F0'
   }
   properties: {
     customSubDomainName: '${resourceBaseName}-language-${take(uniqueSuffix, 6)}'
