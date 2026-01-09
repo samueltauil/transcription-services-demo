@@ -119,10 +119,10 @@ func azure functionapp publish your-function-app
 ## HIPAA Compliance
 
 This demo is designed for HIPAA-eligible deployments:
-- All data encrypted in transit and at rest
-- Azure services configured with BAA support
-- Audit logging enabled
-- Data residency in approved US regions
+- All data encrypted in transit and at rest.
+- Azure services configured with BAA support.
+- Audit logging enabled.
+- Data residency in approved US regions.
 
 ## Documentation
 
