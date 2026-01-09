@@ -6,10 +6,8 @@ on:
 
 env:
   AZURE_FUNCTIONAPP_NAME: 'healthtranscriptiondev-func-si35ec'
-  AZURE_FUNCTIONAPP_PACKAGE_PATH: '.'
   PYTHON_VERSION: '3.11'
   RESOURCE_GROUP: 'speech-demo-west'
-  STORAGE_ACCOUNT_NAME: 'healthtranscrisi35eciv'
 
 jobs:
   build-and-deploy:
@@ -24,49 +22,54 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Create and activate virtual environment
-        run: |
-          python -m venv venv
-          source venv/bin/activate
-
       - name: Install dependencies
         run: |
-          source venv/bin/activate
           pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Login to Azure
-        uses: azure/login@v2
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-      - name: Enable shared key access on storage account
-        run: |
-          az storage account update \
-            --name ${{ env.STORAGE_ACCOUNT_NAME }} \
-            --resource-group ${{ env.RESOURCE_GROUP }} \
-            --allow-shared-key-access true || echo "Could not enable shared key access, continuing..."
+          pip install -r requirements.txt --target=".python_packages/lib/site-packages"
 
       - name: Create deployment package
         run: |
-          # Create a zip file excluding unnecessary files
           zip -r deployment.zip . \
             -x "*.git*" \
-            -x "*.venv*" \
             -x "*__pycache__*" \
             -x "*.pytest_cache*" \
             -x "frontend/*" \
             -x "infra/*" \
             -x "*.md" \
             -x "deployment.zip" \
-            -x ".github/*" \
-            -x "venv/*"
+            -x ".github/*"
 
-      - name: Deploy to Azure Functions using CLI
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Get Function App publish profile
+        id: publishprofile
         run: |
-          az functionapp deployment source config-zip \
-            --resource-group ${{ env.RESOURCE_GROUP }} \
+          CREDS=$(az functionapp deployment list-publishing-credentials \
             --name ${{ env.AZURE_FUNCTIONAPP_NAME }} \
-            --src deployment.zip \
-            --build-remote true
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --query "{username:publishingUserName, password:publishingPassword}" -o tsv)
+          USERNAME=$(echo "$CREDS" | cut -f1)
+          PASSWORD=$(echo "$CREDS" | cut -f2)
+          echo "::add-mask::$PASSWORD"
+          echo "scm_username=$USERNAME" >> $GITHUB_OUTPUT
+          echo "scm_password=$PASSWORD" >> $GITHUB_OUTPUT
+
+      - name: Deploy via Kudu ZIP Deploy API
+        run: |
+          curl -X POST \
+            --user "${{ steps.publishprofile.outputs.scm_username }}:${{ steps.publishprofile.outputs.scm_password }}" \
+            --data-binary @deployment.zip \
+            -H "Content-Type: application/zip" \
+            "https://${{ env.AZURE_FUNCTIONAPP_NAME }}.scm.azurewebsites.net/api/zipdeploy?isAsync=true"
+          
+          echo "Deployment initiated. Checking status..."
+          sleep 30
+          
+          # Check deployment status
+          curl -s \
+            --user "${{ steps.publishprofile.outputs.scm_username }}:${{ steps.publishprofile.outputs.scm_password }}" \
+            "https://${{ env.AZURE_FUNCTIONAPP_NAME }}.scm.azurewebsites.net/api/deployments" | head -c 500
 
