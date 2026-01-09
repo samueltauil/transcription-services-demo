@@ -1,0 +1,23 @@
+# Azure Functions
+azure-functions
+azure-storage-blob
+azure-cosmos
+
+# Azure AI Services
+azure-cognitiveservices-speech
+azure-ai-textanalytics
+
+# HTTP and async processing
+aiohttp
+requests
+
+# Data processing
+pydantic
+python-dotenv
+
+# Audio processing
+pydub
+
+# Testing
+pytest
+pytest-asyncio

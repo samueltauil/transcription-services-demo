@@ -1,0 +1,25 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FUNCTIONS_WORKER_RUNTIME": "python",
+    
+    "AZURE_SPEECH_KEY": "<your-speech-service-key>",
+    "AZURE_SPEECH_REGION": "<your-region-e.g.-eastus>",
+    
+    "AZURE_LANGUAGE_KEY": "<your-language-service-key>",
+    "AZURE_LANGUAGE_ENDPOINT": "https://<your-resource>.cognitiveservices.azure.com/",
+    
+    "COSMOS_CONNECTION_STRING": "<your-cosmos-connection-string>",
+    "COSMOS_DATABASE_NAME": "transcription-db",
+    "COSMOS_CONTAINER_NAME": "transcriptions",
+    
+    "STORAGE_CONNECTION_STRING": "<your-storage-connection-string>",
+    "STORAGE_CONTAINER_NAME": "audio-files"
+  },
+  "Host": {
+    "LocalHttpPort": 7071,
+    "CORS": "*",
+    "CORSCredentials": false
+  }
+}

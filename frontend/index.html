@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Azure Healthcare Transcription Services</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo">
+                <svg class="azure-icon" viewBox="0 0 24 24" width="32" height="32">
+                    <path fill="#0078d4" d="M13.05 4.24l-3.14 5.72-6.15 1.09 4.45 4.34-.7 6.12 5.54-2.92 5.54 2.92-.7-6.12 4.45-4.34-6.15-1.09z"/>
+                </svg>
+                <h1>Healthcare Transcription Services</h1>
+            </div>
+            <p class="subtitle">Azure Speech Services + Text Analytics for Health</p>
+        </header>
+
+        <main>
+            <!-- Upload Section -->
+            <section class="upload-section card">
+                <h2>📤 Upload Audio Recording</h2>
+                <p>Upload an audio file from a healthcare interview or conversation for transcription and medical entity extraction.</p>
+                
+                <div class="upload-area" id="dropZone">
+                    <div class="upload-icon">🎙️</div>
+                    <p>Drag & drop audio file here or click to browse</p>
+                    <p class="supported-formats">Supported: WAV, MP3, OGG, FLAC, M4A, WMA</p>
+                    <input type="file" id="fileInput" accept=".wav,.mp3,.ogg,.flac,.m4a,.wma" hidden>
+                </div>
+                
+                <div class="selected-file" id="selectedFile" style="display: none;">
+                    <span class="file-icon">📁</span>
+                    <span class="file-name" id="fileName"></span>
+                    <span class="file-size" id="fileSize"></span>
+                    <button class="remove-btn" id="removeFile">✕</button>
+                </div>
+                
+                <button class="primary-btn" id="uploadBtn" disabled>
+                    <span class="btn-text">Upload & Process</span>
+                    <span class="btn-loading" style="display: none;">Processing...</span>
+                </button>
+            </section>
+
+            <!-- Status Section -->
+            <section class="status-section card" id="statusSection" style="display: none;">
+                <h2>⏳ Processing Status</h2>
+                <div class="status-container">
+                    <div class="status-step" data-step="upload">
+                        <div class="step-indicator"></div>
+                        <span>Uploading</span>
+                    </div>
+                    <div class="status-step" data-step="transcribe">
+                        <div class="step-indicator"></div>
+                        <span>Transcribing</span>
+                    </div>
+                    <div class="status-step" data-step="analyze">
+                        <div class="step-indicator"></div>
+                        <span>Analyzing</span>
+                    </div>
+                    <div class="status-step" data-step="complete">
+                        <div class="step-indicator"></div>
+                        <span>Complete</span>
+                    </div>
+                </div>
+                <p class="status-message" id="statusMessage">Initializing...</p>
+            </section>
+
+            <!-- Results Section -->
+            <section class="results-section" id="resultsSection" style="display: none;">
+                <h2>📊 Analysis Results</h2>
+                
+                <!-- Summary Cards -->
+                <div class="summary-cards">
+                    <div class="summary-card">
+                        <div class="card-icon">⏱️</div>
+                        <div class="card-value" id="processingTime">-</div>
+                        <div class="card-label">Processing Time</div>
+                    </div>
+                    <div class="summary-card">
+                        <div class="card-icon">📝</div>
+                        <div class="card-value" id="wordCount">-</div>
+                        <div class="card-label">Words Transcribed</div>
+                    </div>
+                    <div class="summary-card">
+                        <div class="card-icon">🏥</div>
+                        <div class="card-value" id="entityCount">-</div>
+                        <div class="card-label">Medical Entities</div>
+                    </div>
+                    <div class="summary-card">
+                        <div class="card-icon">🔗</div>
+                        <div class="card-value" id="relationCount">-</div>
+                        <div class="card-label">Relationships</div>
+                    </div>
+                </div>
+
+                <!-- Tabs -->
+                <div class="tabs">
+                    <button class="tab active" data-tab="transcription">Transcription</button>
+                    <button class="tab" data-tab="entities">Medical Entities</button>
+                    <button class="tab" data-tab="fhir">FHIR Output</button>
+                </div>
+
+                <!-- Tab Content -->
+                <div class="tab-content">
+                    <div class="tab-pane active" id="transcriptionTab">
+                        <div class="transcription-text" id="transcriptionText">
+                            <p class="placeholder">Transcription will appear here...</p>
+                        </div>
+                    </div>
+                    
+                    <div class="tab-pane" id="entitiesTab">
+                        <div class="entities-container" id="entitiesContainer">
+                            <p class="placeholder">Medical entities will appear here...</p>
+                        </div>
+                    </div>
+                    
+                    <div class="tab-pane" id="fhirTab">
+                        <div class="fhir-output">
+                            <pre id="fhirOutput"><code>FHIR bundle will appear here...</code></pre>
+                        </div>
+                        <button class="secondary-btn" id="downloadFhir">
+                            📥 Download FHIR Bundle
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Cost Comparison Section -->
+            <section class="cost-section card">
+                <h2>💰 Cost Comparison</h2>
+                <div class="cost-calculator">
+                    <div class="cost-input">
+                        <label for="minutesInput">Audio Minutes:</label>
+                        <input type="number" id="minutesInput" value="60" min="1">
+                    </div>
+                    <div class="cost-comparison">
+                        <div class="cost-item transcribeme">
+                            <h3>TranscribeMe</h3>
+                            <p class="cost-rate">$0.79/minute</p>
+                            <p class="cost-total" id="transcribemeCost">$47.40</p>
+                            <p class="cost-time">2-3 business days</p>
+                        </div>
+                        <div class="cost-item azure">
+                            <h3>Azure Speech</h3>
+                            <p class="cost-rate">$0.003/minute</p>
+                            <p class="cost-total" id="azureCost">$0.18</p>
+                            <p class="cost-time">Real-time processing</p>
+                        </div>
+                        <div class="cost-savings">
+                            <h3>Savings</h3>
+                            <p class="savings-amount" id="savingsAmount">$47.22</p>
+                            <p class="savings-percent" id="savingsPercent">99.6%</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <footer>
+            <p>Azure Healthcare Transcription Services Demo</p>
+            <p>
+                <a href="https://learn.microsoft.com/azure/ai-services/speech-service/speech-to-text" target="_blank">Speech Services</a> |
+                <a href="https://learn.microsoft.com/azure/ai-services/language-service/text-analytics-for-health/overview" target="_blank">Text Analytics for Health</a> |
+                <a href="https://learn.microsoft.com/azure/ai-services/language-service/text-analytics-for-health/fhir" target="_blank">FHIR Integration</a>
+            </p>
+        </footer>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
