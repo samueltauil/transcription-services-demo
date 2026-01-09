@@ -42,35 +42,62 @@ jobs:
             -x "venv/*" \
             -x ".venv/*"
           
-          echo "Package contents:"
-          unzip -l deployment.zip | head -50
+          echo "Package size:"
+          ls -lh deployment.zip
 
       - name: Login to Azure
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Deploy via Azure CLI
+      - name: Get publishing credentials
+        id: creds
         run: |
-          # Use publish command which handles Python better
-          az functionapp deployment source config-zip \
-            --resource-group ${{ env.RESOURCE_GROUP }} \
+          PUBLISH_PROFILE=$(az functionapp deployment list-publishing-credentials \
             --name ${{ env.AZURE_FUNCTIONAPP_NAME }} \
-            --src deployment.zip
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --query "{user:publishingUserName, pass:publishingPassword}" -o json)
           
-          echo "Waiting for deployment to complete..."
-          sleep 60
+          USER=$(echo $PUBLISH_PROFILE | jq -r '.user')
+          PASS=$(echo $PUBLISH_PROFILE | jq -r '.pass')
           
+          echo "::add-mask::$PASS"
+          echo "publish_user=$USER" >> $GITHUB_OUTPUT
+          echo "publish_pass=$PASS" >> $GITHUB_OUTPUT
+
+      - name: Deploy via Kudu ZIP API
+        run: |
+          # Deploy using Kudu zipdeploy API (bypasses storage account)
+          HTTP_CODE=$(curl -s -o response.txt -w "%{http_code}" \
+            -X POST \
+            -u "${{ steps.creds.outputs.publish_user }}:${{ steps.creds.outputs.publish_pass }}" \
+            --data-binary @deployment.zip \
+            -H "Content-Type: application/zip" \
+            "https://${{ env.AZURE_FUNCTIONAPP_NAME }}.scm.azurewebsites.net/api/zipdeploy")
+          
+          echo "HTTP Response Code: $HTTP_CODE"
+          cat response.txt
+          
+          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+            echo "Deployment successful!"
+          else
+            echo "Deployment failed with code $HTTP_CODE"
+            exit 1
+          fi
+          
+      - name: Wait for deployment
+        run: sleep 60
+
       - name: Restart Function App
         run: |
           az functionapp restart \
             --name ${{ env.AZURE_FUNCTIONAPP_NAME }} \
             --resource-group ${{ env.RESOURCE_GROUP }}
           
-      - name: Verify deployment
+      - name: Verify functions loaded
         run: |
-          echo "Checking function list..."
           sleep 30
+          echo "Checking deployed functions..."
           az functionapp function list \
             --name ${{ env.AZURE_FUNCTIONAPP_NAME }} \
             --resource-group ${{ env.RESOURCE_GROUP }} \
