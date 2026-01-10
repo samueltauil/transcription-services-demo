@@ -2,6 +2,48 @@
 
 A production-ready application demonstrating Azure Speech Services for audio transcription with Text Analytics for Health for medical entity extraction and FHIR integration.
 
+![File Processing](docs/file-processed.png)
+
+## ✨ Features
+
+### 🎤 Audio Transcription
+Upload audio files (WAV, MP3, M4A, FLAC, OGG, WEBM) and get accurate transcriptions powered by Azure Speech Services Fast Transcription API.
+
+![Transcription Results](docs/transcription.png)
+
+### 🏥 Medical Entity Extraction
+Automatically identify and categorize 33+ types of healthcare entities including:
+- **Medications**: Drug names, dosages, frequencies, routes of administration
+- **Conditions**: Diagnoses, symptoms, signs
+- **Procedures**: Treatments, examinations, surgeries
+- **Anatomy**: Body structures, organs, systems
+- **Demographics**: Age, gender, ethnicity
+- **Healthcare Personnel**: Doctors, nurses, specialists
+
+![Medical Entities](docs/medical-entities.png)
+
+### 🔗 Relationship Analysis
+Understand the connections between medical entities with intelligent relationship mapping:
+- Drug → Dosage associations
+- Condition → Body structure links
+- Symptom → Time expressions
+- Treatment → Frequency patterns
+
+![Entity Relationships](docs/relationships.png)
+
+### 📋 FHIR R4 Export
+Export your analysis as a standards-compliant FHIR R4 Bundle, ready for integration with Electronic Health Records (EHR) systems and healthcare interoperability platforms.
+
+![FHIR Export](docs/fhir-export.png)
+
+### 💰 Cost Savings
+Achieve ~99% cost reduction compared to traditional transcription services:
+- **Azure**: $0.003/min (batch) or $0.017/min (real-time)
+- **TranscribeMe**: $0.79/min
+- **Monthly savings**: $4,700+ for 100 hours of audio
+
+---
+
 ## 🚀 Quick Deploy
 
 ### Prerequisites
@@ -81,14 +123,6 @@ swa deploy ./frontend --deployment-token <token> --env production
 - **disableLocalAuth**: Enforced on Cognitive Services per enterprise policy
 - **RBAC**: Proper role assignments for Function App to access all services
 
-## Features
-
-- **Audio Transcription**: Upload WAV, MP3, M4A, FLAC, OGG, WEBM files
-- **Medical Entity Extraction**: 33+ healthcare entity categories
-- **Relationship Analysis**: Drug-dosage, condition-body site, and more
-- **FHIR Bundle Generation**: Export analysis as FHIR R4 resources
-- **Cost Savings**: ~99% cheaper than TranscribeMe ($0.003/min vs $0.79/min)
-
 ## Project Structure
 
 ```
@@ -156,13 +190,6 @@ cp local.settings.example.json local.settings.json
 # Run locally
 func start
 ```
-
-## Cost Comparison
-
-| Scenario | Azure | TranscribeMe | Monthly Savings (100 hrs) |
-|----------|-------|--------------|---------------------------|
-| Batch | $0.003/min | $0.79/min | $4,722 |
-| Real-time | $0.017/min | $0.79/min | $4,638 |
 
 ## Documentation
 
