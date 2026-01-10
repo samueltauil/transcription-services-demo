@@ -1,7 +1,7 @@
 """
 Azure Functions entry point
 Healthcare Transcription Services Demo
-Simplified version using REST APIs instead of heavy SDKs
+Single-file approach for reliable deployment
 """
 import azure.functions as func
 import logging
@@ -9,10 +9,10 @@ import json
 import uuid
 import os
 import time
-import requests
+import tempfile
 from datetime import datetime
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, List, Tuple
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -78,6 +78,7 @@ class TranscriptionJob:
     blob_url: Optional[str] = None
     transcription_text: Optional[str] = None
     medical_entities: Optional[dict] = None
+    fhir_bundle: Optional[dict] = None
     error_message: Optional[str] = None
     processing_time_seconds: Optional[float] = None
     
@@ -86,7 +87,7 @@ class TranscriptionJob:
             "id": self.id, "filename": self.filename, "status": self.status,
             "created_at": self.created_at, "updated_at": self.updated_at,
             "blob_url": self.blob_url, "transcription_text": self.transcription_text,
-            "medical_entities": self.medical_entities,
+            "medical_entities": self.medical_entities, "fhir_bundle": self.fhir_bundle,
             "error_message": self.error_message, "processing_time_seconds": self.processing_time_seconds,
         }
     
@@ -97,7 +98,7 @@ class TranscriptionJob:
             status=data.get("status", "pending"), created_at=data.get("created_at", ""),
             updated_at=data.get("updated_at", ""), blob_url=data.get("blob_url"),
             transcription_text=data.get("transcription_text"),
-            medical_entities=data.get("medical_entities"),
+            medical_entities=data.get("medical_entities"), fhir_bundle=data.get("fhir_bundle"),
             error_message=data.get("error_message"), processing_time_seconds=data.get("processing_time_seconds"),
         )
 
@@ -137,105 +138,6 @@ SUPPORTED_FORMATS = {'.wav', '.mp3', '.m4a', '.ogg', '.flac', '.wma', '.aac'}
 def is_supported_format(filename: str) -> bool:
     ext = os.path.splitext(filename)[1].lower()
     return ext in SUPPORTED_FORMATS
-
-
-# ============================================================================
-# Speech REST API (no SDK needed)
-# ============================================================================
-
-def transcribe_audio_rest(audio_bytes: bytes, config: AzureConfig) -> str:
-    """Transcribe audio using Speech REST API (for short audio < 60 seconds)"""
-    url = f"https://{config.speech_region}.stt.speech.microsoft.com/speech/recognition/conversation/cognitiveservices/v1"
-    
-    headers = {
-        "Ocp-Apim-Subscription-Key": config.speech_key,
-        "Content-Type": "audio/wav",
-        "Accept": "application/json"
-    }
-    
-    params = {
-        "language": "en-US",
-        "format": "detailed"
-    }
-    
-    response = requests.post(url, headers=headers, params=params, data=audio_bytes, timeout=60)
-    
-    if response.status_code == 200:
-        result = response.json()
-        if result.get("RecognitionStatus") == "Success":
-            return result.get("DisplayText", "")
-        else:
-            return f"Recognition status: {result.get('RecognitionStatus', 'Unknown')}"
-    else:
-        logger.error(f"Speech API error: {response.status_code} - {response.text}")
-        return f"Transcription failed: {response.status_code}"
-
-
-# ============================================================================
-# Text Analytics REST API
-# ============================================================================
-
-def analyze_health_text_rest(text: str, config: AzureConfig) -> dict:
-    """Analyze text for health entities using REST API"""
-    url = f"{config.language_endpoint}/language/analyze-text/jobs?api-version=2023-04-01"
-    
-    headers = {
-        "Ocp-Apim-Subscription-Key": config.language_key,
-        "Content-Type": "application/json"
-    }
-    
-    payload = {
-        "displayName": "Health Analysis",
-        "analysisInput": {
-            "documents": [{"id": "1", "language": "en", "text": text[:5000]}]  # Limit text
-        },
-        "tasks": [
-            {"kind": "Healthcare", "parameters": {"modelVersion": "latest"}}
-        ]
-    }
-    
-    # Start the job
-    response = requests.post(url, headers=headers, json=payload, timeout=30)
-    
-    if response.status_code != 202:
-        logger.error(f"Health API error: {response.status_code} - {response.text}")
-        return {"entities": [], "error": f"API error: {response.status_code}"}
-    
-    # Get operation location
-    operation_location = response.headers.get("Operation-Location")
-    if not operation_location:
-        return {"entities": [], "error": "No operation location"}
-    
-    # Poll for results
-    for _ in range(30):  # Max 30 attempts
-        time.sleep(2)
-        result_response = requests.get(operation_location, headers={"Ocp-Apim-Subscription-Key": config.language_key})
-        
-        if result_response.status_code == 200:
-            result = result_response.json()
-            status = result.get("status", "")
-            
-            if status == "succeeded":
-                entities = []
-                try:
-                    tasks = result.get("tasks", {}).get("items", [])
-                    for task in tasks:
-                        docs = task.get("results", {}).get("documents", [])
-                        for doc in docs:
-                            for entity in doc.get("entities", []):
-                                entities.append({
-                                    "text": entity.get("text"),
-                                    "category": entity.get("category"),
-                                    "confidence_score": entity.get("confidenceScore", 0)
-                                })
-                except Exception as e:
-                    logger.error(f"Error parsing health results: {e}")
-                
-                return {"entities": entities}
-            elif status == "failed":
-                return {"entities": [], "error": "Analysis failed"}
-    
-    return {"entities": [], "error": "Timeout waiting for results"}
 
 
 # ============================================================================
@@ -300,7 +202,7 @@ def upload_audio(req: func.HttpRequest) -> func.HttpResponse:
 
 @app.route(route="process/{job_id}", methods=["POST"])
 def process_transcription(req: func.HttpRequest) -> func.HttpResponse:
-    """Process a transcription job using REST APIs"""
+    """Process a transcription job"""
     job_id = req.route_params.get('job_id')
     if not job_id:
         return func.HttpResponse(json.dumps({"error": "Job ID required"}), status_code=400, mimetype="application/json")
@@ -327,29 +229,83 @@ def process_transcription(req: func.HttpRequest) -> func.HttpResponse:
         blob_client = get_blob_client(config, blob_name)
         audio_bytes = blob_client.download_blob().readall()
         
-        # Transcribe using REST API
-        transcription_text = transcribe_audio_rest(audio_bytes, config)
+        # Transcribe
+        import azure.cognitiveservices.speech as speechsdk
+        speech_config = speechsdk.SpeechConfig(subscription=config.speech_key, region=config.speech_region)
+        speech_config.speech_recognition_language = "en-US"
+        
+        ext = job.filename.split('.')[-1] if '.' in job.filename else 'wav'
+        with tempfile.NamedTemporaryFile(suffix=f".{ext}", delete=False) as tmp_file:
+            tmp_file.write(audio_bytes)
+            tmp_path = tmp_file.name
+        
+        try:
+            audio_config = speechsdk.AudioConfig(filename=tmp_path)
+            recognizer = speechsdk.SpeechRecognizer(speech_config=speech_config, audio_config=audio_config)
+            
+            all_results = []
+            done = False
+            
+            def recognized_cb(evt):
+                if evt.result.reason == speechsdk.ResultReason.RecognizedSpeech:
+                    all_results.append(evt.result.text)
+            
+            def session_stopped_cb(evt):
+                nonlocal done
+                done = True
+            
+            recognizer.recognized.connect(recognized_cb)
+            recognizer.session_stopped.connect(session_stopped_cb)
+            recognizer.canceled.connect(session_stopped_cb)
+            
+            recognizer.start_continuous_recognition()
+            while not done:
+                time.sleep(0.5)
+            recognizer.stop_continuous_recognition()
+            
+            transcription_text = " ".join(all_results)
+        finally:
+            os.remove(tmp_path)
         
         job.transcription_text = transcription_text
         job.status = JobStatus.ANALYZING
         job.updated_at = datetime.utcnow().isoformat() + "Z"
         container.upsert_item(body=job.to_dict())
         
-        # Analyze health entities using REST API
-        health_results = analyze_health_text_rest(transcription_text, config)
+        # Analyze with Text Analytics for Health
+        from azure.ai.textanalytics import TextAnalyticsClient
+        from azure.core.credentials import AzureKeyCredential
         
-        # Group entities by category
+        text_client = TextAnalyticsClient(endpoint=config.language_endpoint, credential=AzureKeyCredential(config.language_key))
+        
+        # Split into chunks if needed (5120 char limit)
+        chunks = [transcription_text[i:i+5000] for i in range(0, len(transcription_text), 5000)] if transcription_text else [""]
+        
+        all_entities = []
+        for chunk in chunks:
+            if chunk.strip():
+                poller = text_client.begin_analyze_healthcare_entities([chunk])
+                results = list(poller.result())
+                for doc in results:
+                    if not doc.is_error:
+                        for entity in doc.entities:
+                            all_entities.append({
+                                "text": entity.text,
+                                "category": entity.category,
+                                "confidence_score": entity.confidence_score,
+                                "offset": entity.offset,
+                                "length": entity.length
+                            })
+        
+        # Group by category
         entities_by_category = {}
-        for e in health_results.get("entities", []):
-            cat = e.get("category", "Unknown")
+        for e in all_entities:
+            cat = e["category"]
             if cat not in entities_by_category:
                 entities_by_category[cat] = []
             entities_by_category[cat].append(e)
         
-        job.medical_entities = {
-            "entities": health_results.get("entities", []),
-            "entities_by_category": entities_by_category
-        }
+        job.medical_entities = {"entities": all_entities, "entities_by_category": entities_by_category}
         job.status = JobStatus.COMPLETED
         job.processing_time_seconds = time.time() - start_time
         job.updated_at = datetime.utcnow().isoformat() + "Z"
@@ -359,7 +315,7 @@ def process_transcription(req: func.HttpRequest) -> func.HttpResponse:
         return func.HttpResponse(
             json.dumps({"job_id": job_id, "status": JobStatus.COMPLETED, "processing_time": job.processing_time_seconds,
                        "transcription_preview": transcription_text[:500] if transcription_text else "",
-                       "entities_found": len(health_results.get("entities", []))}),
+                       "entities_found": len(all_entities)}),
             status_code=200, mimetype="application/json"
         )
         

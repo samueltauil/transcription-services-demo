@@ -32,7 +32,7 @@ resource storageAccount 'Microsoft.Storage/storageAccounts@2023-01-01' = {
   properties: {
     supportsHttpsTrafficOnly: true
     minimumTlsVersion: 'TLS1_2'
-    allowSharedKeyAccess: false // Use managed identity - more secure
+    allowSharedKeyAccess: true // Allow connection strings for function app
     encryption: {
       services: {
         blob: {

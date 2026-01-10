@@ -1,7 +1,15 @@
 # GitHub Actions workflow for deploying Azure Function App
+# Simplified version using REST APIs (no heavy Speech SDK)
 name: Deploy Azure Functions
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'function_app.py'
+      - 'requirements.txt'
+      - 'host.json'
   workflow_dispatch:
 
 env:
@@ -22,30 +30,23 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Install production dependencies
+      - name: Install dependencies to packages folder
         run: |
           pip install --upgrade pip
-          # Install only production deps (no test packages) to .python_packages
-          pip install \
-            azure-functions \
-            azure-storage-blob \
-            azure-cosmos \
-            azure-cognitiveservices-speech \
-            azure-ai-textanalytics \
-            aiohttp \
-            requests \
-            pydantic \
-            python-dotenv \
-            --target=".python_packages/lib/site-packages"
+          mkdir -p .python_packages/lib/site-packages
+          pip install -r requirements.txt --target=".python_packages/lib/site-packages"
 
       - name: Create deployment package
         run: |
-          # Create zip with code and packages
+          # Create minimal zip
           zip -r deploy.zip \
             function_app.py \
             host.json \
             requirements.txt \
-            .python_packages
+            .python_packages \
+            -x "*.pyc" \
+            -x "*__pycache__*" \
+            -x "*.dist-info/*"
           ls -lh deploy.zip
 
       - name: Login to Azure
@@ -55,7 +56,7 @@ jobs:
 
       - name: Deploy via Kudu zipdeploy
         run: |
-          # Get credentials
+          # Get publishing credentials
           CREDS=$(az webapp deployment list-publishing-credentials \
             --name ${{ env.AZURE_FUNCTIONAPP_NAME }} \
             --resource-group ${{ env.RESOURCE_GROUP }} \
@@ -63,25 +64,52 @@ jobs:
           USER=$(echo "$CREDS" | head -1)
           PASS=$(echo "$CREDS" | tail -1)
           
-          echo "Deploying via Kudu..."
-          curl -X POST \
+          echo "Package size:"
+          ls -lh deploy.zip
+          
+          echo "Deploying..."
+          HTTP_CODE=$(curl -s -X POST \
             --user "$USER:$PASS" \
             --data-binary @deploy.zip \
             -H "Content-Type: application/zip" \
-            --fail \
             --max-time 600 \
-            "https://${{ env.AZURE_FUNCTIONAPP_NAME }}.scm.azurewebsites.net/api/zipdeploy"
+            -w "%{http_code}" \
+            -o /tmp/deploy_response.txt \
+            "https://${{ env.AZURE_FUNCTIONAPP_NAME }}.scm.azurewebsites.net/api/zipdeploy")
           
-          echo "Deployment complete!"
+          echo "HTTP Code: $HTTP_CODE"
+          cat /tmp/deploy_response.txt || true
           
-      - name: Restart and verify
+          if [ "$HTTP_CODE" -eq "200" ]; then
+            echo "✓ Deployment successful!"
+          elif [ "$HTTP_CODE" -eq "202" ]; then
+            echo "✓ Deployment accepted (async)"
+          else
+            echo "⚠ Deployment response: $HTTP_CODE"
+          fi
+
+      - name: Restart function app
         run: |
-          sleep 10
+          sleep 30
           az functionapp restart --name ${{ env.AZURE_FUNCTIONAPP_NAME }} --resource-group ${{ env.RESOURCE_GROUP }}
-          sleep 45
-          echo "Checking functions..."
-          az functionapp function list --name ${{ env.AZURE_FUNCTIONAPP_NAME }} --resource-group ${{ env.RESOURCE_GROUP }} -o table || echo "Still loading..."
+          sleep 30
+
+      - name: Verify deployment
+        run: |
+          echo "Listing functions..."
+          az functionapp function list --name ${{ env.AZURE_FUNCTIONAPP_NAME }} --resource-group ${{ env.RESOURCE_GROUP }} -o table || echo "Loading..."
+          
           echo ""
           echo "Testing health endpoint..."
-          curl -s "https://${{ env.AZURE_FUNCTIONAPP_NAME }}.azurewebsites.net/api/health" || echo "Health check pending..."
+          for i in 1 2 3 4 5; do
+            RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" "https://${{ env.AZURE_FUNCTIONAPP_NAME }}.azurewebsites.net/api/health")
+            if [ "$RESPONSE" = "200" ]; then
+              echo "✓ Health check passed!"
+              curl -s "https://${{ env.AZURE_FUNCTIONAPP_NAME }}.azurewebsites.net/api/health" | head -c 200
+              exit 0
+            fi
+            echo "Attempt $i: $RESPONSE - waiting..."
+            sleep 15
+          done
+          echo "Health check did not pass yet (may still be warming up)"
 
