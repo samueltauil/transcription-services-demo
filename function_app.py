@@ -33,6 +33,7 @@ class AzureConfig:
     language_key: str
     language_endpoint: str
     cosmos_connection_string: str
+    cosmos_endpoint: str  # For managed identity
     cosmos_database_name: str
     cosmos_container_name: str
     storage_connection_string: str
@@ -47,6 +48,7 @@ class AzureConfig:
             language_key=os.environ.get("AZURE_LANGUAGE_KEY", ""),
             language_endpoint=os.environ.get("AZURE_LANGUAGE_ENDPOINT", ""),
             cosmos_connection_string=os.environ.get("COSMOS_CONNECTION_STRING", ""),
+            cosmos_endpoint=os.environ.get("COSMOS_ENDPOINT", ""),
             cosmos_database_name=os.environ.get("COSMOS_DATABASE_NAME", "transcription-db"),
             cosmos_container_name=os.environ.get("COSMOS_CONTAINER_NAME", "transcriptions"),
             storage_connection_string=os.environ.get("STORAGE_CONNECTION_STRING", ""),
@@ -55,11 +57,12 @@ class AzureConfig:
         )
     
     def validate(self) -> bool:
-        # Either connection string or account name (for managed identity)
+        # Either connection string or endpoint (for managed identity)
         has_storage = bool(self.storage_connection_string) or bool(self.storage_account_name)
+        has_cosmos = bool(self.cosmos_connection_string) or bool(self.cosmos_endpoint)
         return all([
             self.speech_key, self.speech_region, self.language_key,
-            self.language_endpoint, self.cosmos_connection_string,
+            self.language_endpoint, has_cosmos,
             has_storage,
         ])
 
@@ -111,9 +114,16 @@ class TranscriptionJob:
 # ============================================================================
 
 def get_cosmos_client(config: AzureConfig):
-    """Get Cosmos DB client"""
+    """Get Cosmos DB client - supports both connection string and managed identity"""
     from azure.cosmos import CosmosClient, PartitionKey
-    client = CosmosClient.from_connection_string(config.cosmos_connection_string)
+    
+    if config.cosmos_connection_string:
+        client = CosmosClient.from_connection_string(config.cosmos_connection_string)
+    else:
+        # Use managed identity
+        from azure.identity import DefaultAzureCredential
+        client = CosmosClient(config.cosmos_endpoint, credential=DefaultAzureCredential())
+    
     database = client.create_database_if_not_exists(id=config.cosmos_database_name)
     container = database.create_container_if_not_exists(
         id=config.cosmos_container_name,
