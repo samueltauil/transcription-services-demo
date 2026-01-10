@@ -103,3 +103,4 @@ temp/
 secrets/
 
 .venv-1
+logs.zip
