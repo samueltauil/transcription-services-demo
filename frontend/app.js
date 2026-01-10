@@ -7,7 +7,7 @@
 // Use absolute URL when API is hosted separately on Azure Functions
 const API_BASE_URL = window.location.hostname === 'localhost' 
     ? '/api' 
-    : 'https://healthtranscriptiondev-func-si35ec.azurewebsites.net/api';
+    : 'https://healthtranscript-func-si35ec.azurewebsites.net/api';
 
 // State
 let currentJobId = null;

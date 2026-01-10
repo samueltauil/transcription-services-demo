@@ -15,7 +15,7 @@
   "forwardingGateway": {
     "requiredHeaders": {},
     "allowedForwardedHosts": [
-      "healthtranscriptiondev-func-si35ec.azurewebsites.net"
+      "healthtranscript-func-si35ec.azurewebsites.net"
     ]
   },
   "responseOverrides": {
