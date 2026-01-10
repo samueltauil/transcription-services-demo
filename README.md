@@ -1,136 +1,176 @@
-# Azure Healthcare Transcription Services Demo
+# Azure Healthcare Transcription Services
 
-A demo application demonstrating Azure Speech Services for audio transcription with Text Analytics for Health for medical entity extraction and analysis.
+A production-ready application demonstrating Azure Speech Services for audio transcription with Text Analytics for Health for medical entity extraction and FHIR integration.
 
-## Overview
+## 🚀 Quick Deploy
 
-This application provides an automated pipeline for:
-- **Audio Transcription**: Convert recorded interviews/conversations to text using Azure Speech Services
-- **Medical Text Analytics**: Extract medical entities, relationships, and FHIR-structured data using Text Analytics for Health
-- **HIPAA-Compliant Storage**: Secure storage in Azure Cosmos DB with full audit capabilities
+### Prerequisites
+- Azure Subscription
+- GitHub account
+- Azure CLI installed locally (optional, for manual deployment)
+
+### Option 1: Deploy via GitHub Actions (Recommended)
+
+1. **Fork this repository** to your GitHub account
+
+2. **Create Azure Service Principal** for GitHub Actions:
+   ```bash
+   az ad sp create-for-rbac --name "github-actions-sp" --role contributor \
+     --scopes /subscriptions/{subscription-id} --sdk-auth
+   ```
+   Copy the JSON output.
+
+3. **Add GitHub Secrets** (Settings → Secrets and variables → Actions):
+   - `AZURE_CREDENTIALS`: Paste the service principal JSON from step 2
+
+4. **Run the deployment workflow**:
+   - Go to Actions tab → "0. Deploy All (Complete)"
+   - Click "Run workflow"
+   - Enter your resource group name and Azure region
+   - Click "Run workflow"
+
+5. **After infrastructure deploys**, add these additional secrets:
+   - `AZURE_FUNCTIONAPP_NAME`: The function app name (shown in workflow output)
+   - `AZURE_STATIC_WEB_APPS_API_TOKEN`: Get from Azure Portal → Static Web App → Manage deployment token
+
+### Option 2: Manual Deployment
+
+```bash
+# Login to Azure
+az login
+
+# Create resource group
+az group create --name speech-demo --location westus2
+
+# Deploy infrastructure
+az deployment group create \
+  --resource-group speech-demo \
+  --template-file infra/main.bicep \
+  --parameters environment=dev location=westus2
+
+# Note the outputs (functionAppName, staticWebAppName)
+
+# Deploy Function App
+func azure functionapp publish <function-app-name> --python
+
+# Deploy Frontend (get token from Azure Portal first)
+swa deploy ./frontend --deployment-token <token> --env production
+```
 
 ## Architecture
 
 ```
 ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────────┐
-│   Audio Upload  │ →  │ Azure Functions  │ →  │ Speech to Text API  │
-│ (Blob Storage)  │    │  (Orchestrator)  │    │ (Transcription)     │
+│  Static Web App │ →  │ Azure Functions  │ →  │ Azure Speech API    │
+│   (Frontend)    │    │   (Backend)      │    │ (Fast Transcription)│
 └─────────────────┘    └──────────────────┘    └─────────────────────┘
                                 ↓
 ┌─────────────────────────────────────────────────────────────────────┐
-│                     Text Analytics for Health                       │
-│           (Medical Entity Extraction & Analysis)                    │
+│              Text Analytics for Health (Managed Identity)           │
+│       Medical Entities • Relationships • FHIR Bundle Generation     │
 └─────────────────────────────────────────────────────────────────────┘
                                 ↓
 ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────────┐
-│   Results API   │ ←  │   Cosmos DB      │ ←  │    JSON Processing  │
-│  (Web/Mobile)   │    │ (HIPAA Storage)  │    │ (Structured Data)   │
+│  Blob Storage   │    │    Cosmos DB     │    │  FHIR-Compatible    │
+│ (Audio Files)   │    │   (Results)      │    │     Output          │
 └─────────────────┘    └──────────────────┘    └─────────────────────┘
 ```
+
+### Security
+- **Managed Identity**: All Azure services use managed identity authentication (no API keys)
+- **disableLocalAuth**: Enforced on Cognitive Services per enterprise policy
+- **RBAC**: Proper role assignments for Function App to access all services
+
+## Features
+
+- **Audio Transcription**: Upload WAV, MP3, M4A, FLAC, OGG, WEBM files
+- **Medical Entity Extraction**: 33+ healthcare entity categories
+- **Relationship Analysis**: Drug-dosage, condition-body site, and more
+- **FHIR Bundle Generation**: Export analysis as FHIR R4 resources
+- **Cost Savings**: ~99% cheaper than TranscribeMe ($0.003/min vs $0.79/min)
 
 ## Project Structure
 
 ```
 transcription-services-demo/
-├── api/                          # Azure Functions backend
-│   ├── upload_audio/             # Audio file upload handler
-│   ├── process_transcription/    # Speech-to-text processing
-│   ├── analyze_health/           # Text Analytics for Health
-│   ├── get_results/              # Retrieve processed results
-│   └── shared/                   # Shared utilities
-├── frontend/                     # Web interface
-│   ├── index.html                # Main upload interface
-│   ├── styles.css                # Application styles
-│   └── app.js                    # Frontend JavaScript
-├── infra/                        # Infrastructure as Code
-│   └── main.bicep                # Azure Bicep deployment
-├── samples/                      # Sample audio and transcripts
-│   └── sample_health_dialog.txt  # Sample healthcare conversation
-├── requirements.txt              # Python dependencies
-├── host.json                     # Azure Functions host config
-├── local.settings.json           # Local development settings
-└── README.md
-```
-
-## Prerequisites
-
-- Python 3.9+
-- Azure Subscription with the following services:
-  - Azure Speech Services
-  - Azure Language Service (Text Analytics for Health)
-  - Azure Cosmos DB
-  - Azure Blob Storage
-  - Azure Functions
-
-## Quick Start
-
-### 1. Install Dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-### 2. Configure Environment
-
-Copy `local.settings.example.json` to `local.settings.json` and update with your Azure credentials:
-
-```json
-{
-  "Values": {
-    "AZURE_SPEECH_KEY": "your-speech-key",
-    "AZURE_SPEECH_REGION": "your-region",
-    "AZURE_LANGUAGE_KEY": "your-language-key",
-    "AZURE_LANGUAGE_ENDPOINT": "your-endpoint",
-    "COSMOS_CONNECTION_STRING": "your-cosmos-connection",
-    "STORAGE_CONNECTION_STRING": "your-storage-connection"
-  }
-}
-```
-
-### 3. Run Locally
-
-```bash
-func start
-```
-
-### 4. Deploy to Azure
-
-```bash
-az deployment group create --resource-group your-rg --template-file infra/main.bicep
-func azure functionapp publish your-function-app
+├── .github/workflows/         # GitHub Actions CI/CD
+│   ├── deploy-all.yml         # Complete deployment
+│   ├── deploy-infrastructure.yml
+│   ├── deploy-function.yml
+│   └── deploy-frontend.yml
+├── frontend/                  # Static Web App
+│   ├── index.html
+│   ├── styles.css
+│   └── app.js
+├── infra/                     # Infrastructure as Code
+│   └── main.bicep             # Azure Bicep (all resources)
+├── function_app.py            # Azure Functions backend
+├── requirements.txt           # Python dependencies
+└── host.json                  # Functions configuration
 ```
 
 ## API Endpoints
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/upload` | POST | Upload audio file for processing |
-| `/api/status/{id}` | GET | Get processing status |
-| `/api/results/{id}` | GET | Get transcription and analysis results |
-| `/api/health` | GET | Health check endpoint |
+| `/api/health` | GET | Health check |
+| `/api/upload` | POST | Upload audio file |
+| `/api/status/{job_id}` | GET | Get job status and results |
+
+## Azure Resources Created
+
+| Resource | SKU | Purpose |
+|----------|-----|---------|
+| Storage Account | Standard_LRS | Audio files, Function App storage |
+| Cosmos DB | Serverless | Job storage (managed identity auth) |
+| Speech Services | S0 | Audio transcription |
+| Language Service | S | Text Analytics for Health |
+| Function App | EP1 (Elastic Premium) | Backend API |
+| App Service Plan | EP1 | Required for managed identity storage binding |
+| Static Web App | Free | Frontend hosting |
+| Application Insights | - | Monitoring |
+
+## GitHub Secrets Reference
+
+| Secret | Description | Required |
+|--------|-------------|----------|
+| `AZURE_CREDENTIALS` | Service principal JSON for Azure login | Yes |
+| `AZURE_FUNCTIONAPP_NAME` | Name of deployed Function App | For function deployments |
+| `AZURE_STATIC_WEB_APPS_API_TOKEN` | SWA deployment token | For frontend deployments |
+
+## Local Development
+
+```bash
+# Create virtual environment
+python -m venv .venv
+source .venv/bin/activate  # Linux/Mac
+.venv\Scripts\activate     # Windows
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Configure local settings
+cp local.settings.example.json local.settings.json
+# Edit local.settings.json with your Azure credentials
+
+# Run locally
+func start
+```
 
 ## Cost Comparison
 
-| Service | Azure Cost | TranscribeMe | Savings |
-|---------|------------|--------------|---------|
-| Batch Transcription | $0.003/min | $0.79/min | 99.6% |
-| Real-time | $0.017/min | $0.79/min | 97.8% |
-
-## HIPAA Compliance
-
-This demo is designed for HIPAA-eligible deployments:
-- All data encrypted in transit and at rest.
-- Azure services configured with BAA support.
-- Audit logging enabled.
-- Data residency in approved US regions.
+| Scenario | Azure | TranscribeMe | Monthly Savings (100 hrs) |
+|----------|-------|--------------|---------------------------|
+| Batch | $0.003/min | $0.79/min | $4,722 |
+| Real-time | $0.017/min | $0.79/min | $4,638 |
 
 ## Documentation
 
-- [Azure Speech to Text](https://learn.microsoft.com/azure/ai-services/speech-service/speech-to-text)
-- [Batch Transcription](https://learn.microsoft.com/azure/ai-services/speech-service/batch-transcription)
+- [Azure Speech Fast Transcription](https://learn.microsoft.com/azure/ai-services/speech-service/fast-transcription-create)
 - [Text Analytics for Health](https://learn.microsoft.com/azure/ai-services/language-service/text-analytics-for-health/overview)
-- [FHIR Integration](https://learn.microsoft.com/azure/ai-services/language-service/text-analytics-for-health/fhir)
+- [FHIR Integration](https://learn.microsoft.com/azure/ai-services/language-service/text-analytics-for-health/concepts/fhir)
+- [Managed Identity for Functions](https://learn.microsoft.com/azure/azure-functions/functions-identity-access-azure-sql-with-managed-identity)
 
 ## License
 
-MIT License - See LICENSE file for details
+MIT License

@@ -3,16 +3,29 @@
  */
 
 // API Configuration
-// Use relative path when running locally or when API is linked to Static Web App
-// Use absolute URL when API is hosted separately on Azure Functions
-const API_BASE_URL = window.location.hostname === 'localhost' 
-    ? '/api' 
-    : 'https://healthtranscript-func-si35ec.azurewebsites.net/api';
+// The API URL can be configured in multiple ways:
+// 1. Set FUNCTION_APP_URL in staticwebapp.config.json for production
+// 2. Uses /api for local development (Azure Functions Core Tools)
+// 3. Falls back to window.API_BASE_URL if set globally
+const API_BASE_URL = (() => {
+    // Check for global override (can be set in staticwebapp.config.json)
+    if (window.FUNCTION_APP_URL) {
+        return window.FUNCTION_APP_URL;
+    }
+    // Local development
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+        return '/api';
+    }
+    // Production - use linked backend or configured URL
+    // Update this URL after deploying your Function App, or use staticwebapp.config.json
+    return 'https://healthtranscript-func-si35ec.azurewebsites.net/api';
+})();
 
 // State
 let currentJobId = null;
 let selectedFile = null;
 let pollInterval = null;
+let audioDurationMinutes = 0;
 
 // DOM Elements
 const dropZone = document.getElementById('dropZone');
@@ -30,7 +43,6 @@ const resultsSection = document.getElementById('resultsSection');
 document.addEventListener('DOMContentLoaded', () => {
     initializeUpload();
     initializeTabs();
-    initializeCostCalculator();
 });
 
 /**
@@ -92,6 +104,44 @@ function selectFile(file) {
     fileSize.textContent = formatFileSize(file.size);
     selectedFileDiv.style.display = 'flex';
     uploadBtn.disabled = false;
+    
+    // Get audio duration
+    getAudioDuration(file);
+}
+
+/**
+ * Get audio file duration
+ */
+function getAudioDuration(file) {
+    const audio = new Audio();
+    const objectUrl = URL.createObjectURL(file);
+    
+    audio.addEventListener('loadedmetadata', () => {
+        audioDurationMinutes = audio.duration / 60;
+        URL.revokeObjectURL(objectUrl);
+        
+        // Update file info with duration
+        const durationStr = formatDuration(audio.duration);
+        fileSize.textContent = `${formatFileSize(file.size)} • ${durationStr}`;
+    });
+    
+    audio.addEventListener('error', () => {
+        // If we can't get duration, estimate from file size (rough estimate)
+        // Assume ~1MB per minute for compressed audio
+        audioDurationMinutes = file.size / (1024 * 1024);
+        URL.revokeObjectURL(objectUrl);
+    });
+    
+    audio.src = objectUrl;
+}
+
+/**
+ * Format duration in seconds to mm:ss
+ */
+function formatDuration(seconds) {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
 }
 
 /**
@@ -99,6 +149,7 @@ function selectFile(file) {
  */
 function clearFile() {
     selectedFile = null;
+    audioDurationMinutes = 0;
     fileInput.value = '';
     selectedFileDiv.style.display = 'none';
     uploadBtn.disabled = true;
@@ -282,6 +333,9 @@ async function loadResults() {
         
         resultsSection.style.display = 'block';
         
+        // Calculate and display cost savings based on audio duration
+        updateCostSavings();
+        
         // Update summary cards
         document.getElementById('processingTime').textContent = 
             data.processing_time_seconds ? `${data.processing_time_seconds.toFixed(1)}s` : '-';
@@ -299,18 +353,51 @@ async function loadResults() {
         // Display entities
         displayEntities(data.medical_analysis?.entities_by_category || {});
         
+        // Display relations
+        displayRelations(data.medical_analysis?.relations || []);
+        
         // Display FHIR
         document.getElementById('fhirOutput').textContent = 
             JSON.stringify(data.fhir_bundle, null, 2);
         
-        // Setup FHIR download
+        // Setup FHIR download - capture job ID in closure
+        const jobId = currentJobId || `export-${Date.now()}`;
         document.getElementById('downloadFhir').onclick = () => {
-            downloadJson(data.fhir_bundle, `fhir-bundle-${currentJobId}.json`);
+            downloadJson(data.fhir_bundle, `fhir-bundle-${jobId}.json`);
+        };
+        
+        // Setup FHIR toggle
+        const fhirContainer = document.getElementById('fhirContainer');
+        const toggleBtn = document.getElementById('toggleFhirView');
+        const toggleText = document.getElementById('toggleFhirText');
+        fhirContainer.classList.add('collapsed');
+        toggleText.textContent = 'Show FHIR JSON';
+        toggleBtn.onclick = () => {
+            const isCollapsed = fhirContainer.classList.toggle('collapsed');
+            toggleText.textContent = isCollapsed ? 'Show FHIR JSON' : 'Hide FHIR JSON';
         };
         
     } catch (error) {
         console.error('Failed to load results:', error);
     }
+}
+
+/**
+ * Update cost savings banner based on audio duration
+ */
+function updateCostSavings() {
+    const TRANSCRIBEME_RATE = 0.79; // per minute
+    const AZURE_RATE = 0.003; // per minute (real-time STT)
+    
+    const minutes = audioDurationMinutes || 1;
+    const transcribemeCost = minutes * TRANSCRIBEME_RATE;
+    const azureCost = minutes * AZURE_RATE;
+    const savings = transcribemeCost - azureCost;
+    
+    document.getElementById('transcribemeCostActual').textContent = `$${transcribemeCost.toFixed(2)}`;
+    document.getElementById('azureCostActual').textContent = `$${azureCost.toFixed(3)}`;
+    document.getElementById('actualSavings').textContent = `$${savings.toFixed(2)}`;
+    document.getElementById('savingsDetails').textContent = `(${minutes.toFixed(1)} min audio)`;
 }
 
 /**
@@ -355,6 +442,154 @@ function displayEntities(entitiesByCategory) {
 }
 
 /**
+ * Display relationships between medical entities with enhanced visualization
+ */
+function displayRelations(relations) {
+    const container = document.getElementById('relationsContainer');
+    container.innerHTML = '';
+    
+    if (!relations || relations.length === 0) {
+        container.innerHTML = '<p class="placeholder">No relationships found between medical entities</p>';
+        return;
+    }
+    
+    // Group relations by type
+    const groupedRelations = {};
+    relations.forEach((relation, index) => {
+        const type = relation.relationType || 'Unknown';
+        if (!groupedRelations[type]) {
+            groupedRelations[type] = [];
+        }
+        groupedRelations[type].push({ ...relation, originalIndex: index });
+    });
+    
+    // Create relation type descriptions
+    const relationDescriptions = {
+        'DosageOfMedication': 'Links medication to its prescribed dosage',
+        'RouteOfMedication': 'How medication is administered (oral, IV, etc.)',
+        'FormOfMedication': 'Physical form of medication (tablet, liquid, etc.)',
+        'FrequencyOfMedication': 'How often medication is taken',
+        'TimeOfMedication': 'When medication is administered',
+        'CourseOfMedication': 'Changes in medication over time',
+        'BodySiteOfCondition': 'Where in the body a condition occurs',
+        'TimeOfCondition': 'When a condition occurred or was observed',
+        'QualifierOfCondition': 'Descriptive attributes of a condition',
+        'FrequencyOfCondition': 'How often a condition occurs',
+        'CourseOfCondition': 'How a condition progresses over time',
+        'ScaleOfCondition': 'Severity or measurement scale of condition',
+        'DirectionOfCondition': 'Directional location of condition',
+        'DirectionOfBodyStructure': 'Directional location of body part',
+        'DirectionOfExamination': 'Direction during examination',
+        'DirectionOfTreatment': 'Direction of treatment application',
+        'BodySiteOfTreatment': 'Where treatment is applied',
+        'TimeOfTreatment': 'When treatment is administered',
+        'FrequencyOfTreatment': 'How often treatment is given',
+        'CourseOfTreatment': 'How treatment changes over time',
+        'TimeOfExamination': 'When examination was performed',
+        'RelationOfExamination': 'What examination relates to',
+        'CourseOfExamination': 'Changes in examination results',
+        'UnitOfCondition': 'Measurement unit for condition',
+        'ValueOfCondition': 'Measured value for condition',
+        'UnitOfExamination': 'Measurement unit for examination',
+        'ValueOfExamination': 'Measured value from examination',
+        'ExaminationFindsCondition': 'Examination that detected a condition',
+        'Abbreviation': 'Abbreviation and its full form',
+        'AmountOfSubstanceUse': 'Quantity of substance used',
+        'FrequencyOfSubstanceUse': 'How often substance is used',
+        'ExpressionOfGene': 'Gene expression level',
+        'ExpressionOfVariant': 'Variant expression',
+        'MutationTypeOfGene': 'Type of gene mutation',
+        'MutationTypeOfVariant': 'Type of variant mutation',
+        'VariantOfGene': 'Genetic variant of a gene'
+    };
+    
+    // Render grouped relations
+    Object.keys(groupedRelations).sort().forEach(relationType => {
+        const typeRelations = groupedRelations[relationType];
+        const formattedType = formatCategoryName(relationType);
+        const description = relationDescriptions[relationType] || '';
+        
+        const groupDiv = document.createElement('div');
+        groupDiv.className = 'relation-group';
+        
+        groupDiv.innerHTML = `
+            <div class="relation-group-header">
+                <div class="relation-group-title">
+                    <span class="relation-type-badge">${formattedType}</span>
+                    <span class="relation-count">${typeRelations.length} relationship${typeRelations.length > 1 ? 's' : ''}</span>
+                </div>
+                ${description ? `<div class="relation-description">${description}</div>` : ''}
+            </div>
+            <div class="relation-group-items"></div>
+        `;
+        
+        const itemsContainer = groupDiv.querySelector('.relation-group-items');
+        
+        typeRelations.forEach((relation) => {
+            const entities = relation.entities || [];
+            const confidence = relation.confidenceScore;
+            
+            const relationDiv = document.createElement('div');
+            relationDiv.className = 'relation-item';
+            
+            // Build entity cards with more detail
+            const entityCards = entities.map((e, idx) => {
+                // Handle confidence - API returns 0-1, convert to percentage
+                let confidencePercent = null;
+                if (e.confidenceScore !== undefined && e.confidenceScore !== null) {
+                    // If value is > 1, it's already a percentage; otherwise multiply by 100
+                    confidencePercent = e.confidenceScore > 1 ? Math.round(e.confidenceScore) : Math.round(e.confidenceScore * 100);
+                }
+                const confidenceClass = confidencePercent >= 90 ? 'high' : confidencePercent >= 70 ? 'medium' : 'low';
+                
+                return `
+                    <div class="relation-entity-card">
+                        <div class="entity-role">${e.role || 'Entity'}</div>
+                        <div class="entity-text">${e.text || 'Unknown'}</div>
+                        <div class="entity-meta">
+                            <span class="entity-category-tag">${formatCategoryName(e.category || '')}</span>
+                            ${confidencePercent !== null && confidencePercent > 0 ? `<span class="entity-confidence ${confidenceClass}">${confidencePercent}%</span>` : ''}
+                        </div>
+                    </div>
+                `;
+            }).join(`<div class="relation-connector"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg></div>`);
+            
+            // Confidence indicator for the relation itself
+            let relationConfidencePercent = null;
+            if (confidence !== undefined && confidence !== null) {
+                relationConfidencePercent = confidence > 1 ? Math.round(confidence) : Math.round(confidence * 100);
+            }
+            const relationConfidenceHtml = relationConfidencePercent !== null && relationConfidencePercent > 0 ? 
+                `<div class="relation-confidence-bar"><span>${relationConfidencePercent}% confidence</span><div class="confidence-fill" style="width: ${relationConfidencePercent}%"></div></div>` : '';
+            
+            relationDiv.innerHTML = `
+                <div class="relation-entities-flow">${entityCards}</div>
+                ${relationConfidenceHtml}
+            `;
+            
+            itemsContainer.appendChild(relationDiv);
+        });
+        
+        container.appendChild(groupDiv);
+    });
+    
+    // Add summary at the top
+    const summaryDiv = document.createElement('div');
+    summaryDiv.className = 'relations-summary';
+    summaryDiv.innerHTML = `
+        <div class="summary-stat">
+            <span class="stat-value">${relations.length}</span>
+            <span class="stat-label">Total Relationships</span>
+        </div>
+        <div class="summary-stat">
+            <span class="stat-value">${Object.keys(groupedRelations).length}</span>
+            <span class="stat-label">Relationship Types</span>
+        </div>
+    `;
+    container.insertBefore(summaryDiv, container.firstChild);
+}
+
+/**
  * Format category name for display
  */
 function formatCategoryName(category) {
@@ -395,27 +630,4 @@ function initializeTabs() {
             document.getElementById(`${target}Tab`).classList.add('active');
         });
     });
-}
-
-/**
- * Initialize cost calculator
- */
-function initializeCostCalculator() {
-    const minutesInput = document.getElementById('minutesInput');
-    
-    function updateCosts() {
-        const minutes = parseFloat(minutesInput.value) || 0;
-        const transcribemeCost = minutes * 0.79;
-        const azureCost = minutes * 0.003;
-        const savings = transcribemeCost - azureCost;
-        const savingsPercent = transcribemeCost > 0 ? (savings / transcribemeCost) * 100 : 0;
-        
-        document.getElementById('transcribemeCost').textContent = `$${transcribemeCost.toFixed(2)}`;
-        document.getElementById('azureCost').textContent = `$${azureCost.toFixed(2)}`;
-        document.getElementById('savingsAmount').textContent = `$${savings.toFixed(2)}`;
-        document.getElementById('savingsPercent').textContent = `${savingsPercent.toFixed(1)}%`;
-    }
-    
-    minutesInput.addEventListener('input', updateCosts);
-    updateCosts();
 }

@@ -30,6 +30,7 @@ class AzureConfig:
     """Configuration for Azure services"""
     speech_key: str
     speech_region: str
+    speech_endpoint: str  # Custom endpoint for managed identity
     language_key: str
     language_endpoint: str
     cosmos_connection_string: str
@@ -45,6 +46,7 @@ class AzureConfig:
         return cls(
             speech_key=os.environ.get("AZURE_SPEECH_KEY", ""),
             speech_region=os.environ.get("AZURE_SPEECH_REGION", ""),
+            speech_endpoint=os.environ.get("AZURE_SPEECH_ENDPOINT", ""),
             language_key=os.environ.get("AZURE_LANGUAGE_KEY", ""),
             language_endpoint=os.environ.get("AZURE_LANGUAGE_ENDPOINT", ""),
             cosmos_connection_string=os.environ.get("COSMOS_CONNECTION_STRING", ""),
@@ -60,9 +62,16 @@ class AzureConfig:
         # Either connection string or endpoint (for managed identity)
         has_storage = bool(self.storage_connection_string) or bool(self.storage_account_name)
         has_cosmos = bool(self.cosmos_connection_string) or bool(self.cosmos_endpoint)
+        # Speech: either API key or endpoint (for managed identity)
+        has_speech = bool(self.speech_key) or bool(self.speech_endpoint)
+        # Language: either API key or endpoint (for managed identity)  
+        has_language = bool(self.language_key) or bool(self.language_endpoint)
+        
         return all([
-            self.speech_key, self.speech_region, self.language_key,
-            self.language_endpoint, has_cosmos,
+            has_speech,
+            self.speech_region,
+            has_language,
+            has_cosmos,
             has_storage,
         ])
 
@@ -163,32 +172,185 @@ def is_supported_format(filename: str) -> bool:
 
 
 # ============================================================================
+# FHIR Bundle Generator
+# ============================================================================
+
+def generate_fhir_bundle(medical_entities: dict) -> dict:
+    """Generate a FHIR-compatible bundle from extracted medical entities"""
+    if not medical_entities:
+        return {"resourceType": "Bundle", "type": "collection", "total": 0, "entry": []}
+    
+    entities = medical_entities.get("entities", [])
+    fhir_resources = []
+    
+    # Map all Text Analytics for Health categories to FHIR resource types
+    # Reference: https://learn.microsoft.com/azure/ai-services/language-service/text-analytics-for-health/concepts/health-entity-categories
+    category_to_fhir = {
+        # Anatomy
+        "BodyStructure": "BodyStructure",
+        
+        # Demographics
+        "Age": "Observation",
+        "Ethnicity": "Observation",
+        "Gender": "Patient",
+        
+        # Examinations
+        "ExaminationName": "Procedure",
+        
+        # External Influence
+        "Allergen": "AllergyIntolerance",
+        
+        # General Attributes
+        "Course": "Observation",
+        "Date": "Observation",
+        "Direction": "Observation",
+        "Frequency": "Observation",
+        "Time": "Observation",
+        "MeasurementUnit": "Observation",
+        "MeasurementValue": "Observation",
+        "RelationalOperator": "Observation",
+        
+        # Genomics
+        "Variant": "Observation",
+        "GeneOrProtein": "Observation",
+        "MutationType": "Observation",
+        "Expression": "Observation",
+        
+        # Healthcare
+        "AdministrativeEvent": "Encounter",
+        "CareEnvironment": "Location",
+        "HealthcareProfession": "Practitioner",
+        
+        # Medical Condition
+        "Diagnosis": "Condition",
+        "SymptomOrSign": "Observation",
+        "ConditionQualifier": "Observation",
+        "ConditionScale": "Observation",
+        
+        # Medication
+        "MedicationClass": "Medication",
+        "MedicationName": "Medication",
+        "Dosage": "MedicationStatement",
+        "MedicationForm": "Medication",
+        "MedicationRoute": "MedicationStatement",
+        
+        # Social
+        "FamilyRelation": "FamilyMemberHistory",
+        "Employment": "Observation",
+        "LivingStatus": "Observation",
+        "SubstanceUse": "Observation",
+        "SubstanceUseAmount": "Observation",
+        
+        # Treatment
+        "TreatmentName": "Procedure",
+    }
+    
+    for idx, entity in enumerate(entities, 1):
+        category = entity.get("category", "")
+        fhir_type = category_to_fhir.get(category, "Observation")
+        
+        resource = {
+            "resourceType": fhir_type,
+            "id": f"resource-{idx}",
+            "text": {
+                "status": "generated",
+                "div": f"<div xmlns=\"http://www.w3.org/1999/xhtml\">{entity.get('text', '')}</div>"
+            },
+            "code": {
+                "text": entity.get("text", ""),
+                "coding": []
+            },
+            "meta": {
+                "source": "text-analytics-for-health",
+                "confidence": entity.get("confidence_score", 0)
+            }
+        }
+        
+        # Add data source codes if available
+        for ds in entity.get("data_sources", []):
+            resource["code"]["coding"].append({
+                "system": ds.get("name", ""),
+                "code": ds.get("entity_id", "")
+            })
+        
+        # Add assertion information
+        if entity.get("assertion"):
+            resource["extension"] = [{
+                "url": "http://hl7.org/fhir/StructureDefinition/assertion",
+                "valueString": str(entity["assertion"])
+            }]
+        
+        fhir_resources.append({
+            "fullUrl": f"urn:uuid:resource-{idx}",
+            "resource": resource
+        })
+    
+    return {
+        "resourceType": "Bundle",
+        "type": "collection",
+        "total": len(fhir_resources),
+        "entry": fhir_resources
+    }
+
+
+# ============================================================================
 # Speech REST API (no SDK needed)
 # ============================================================================
 
+def get_speech_token(config: AzureConfig) -> str:
+    """Get access token for Speech API using managed identity"""
+    try:
+        from azure.identity import DefaultAzureCredential
+        credential = DefaultAzureCredential()
+        token = credential.get_token("https://cognitiveservices.azure.com/.default")
+        return token.token
+    except Exception as e:
+        logger.error(f"Failed to get Speech token via managed identity: {e}")
+        raise
+
 def transcribe_audio_rest(audio_bytes: bytes, config: AzureConfig) -> str:
-    """Transcribe audio using Speech REST API (for short audio < 60 seconds)"""
-    url = f"https://{config.speech_region}.stt.speech.microsoft.com/speech/recognition/conversation/cognitiveservices/v1"
+    """Transcribe audio using Speech Fast Transcription API (supports Azure AD auth)"""
+    # Use Fast Transcription API which supports Azure AD/managed identity
+    if config.speech_endpoint:
+        base_endpoint = config.speech_endpoint.rstrip('/')
+        url = f"{base_endpoint}/speechtotext/transcriptions:transcribe?api-version=2024-11-15"
+    else:
+        url = f"https://{config.speech_region}.api.cognitive.microsoft.com/speechtotext/transcriptions:transcribe?api-version=2024-11-15"
     
+    # Use managed identity token
+    try:
+        token = get_speech_token(config)
+        logger.info(f"Using Fast Transcription API: {url}")
+    except Exception as e:
+        logger.error(f"Failed to authenticate for Speech API: {e}")
+        return f"Authentication failed: {str(e)}"
+    
+    # Fast Transcription API uses multipart/form-data
+    import io
+    files = {
+        'audio': ('audio.wav', io.BytesIO(audio_bytes), 'audio/wav')
+    }
+    data = {
+        'definition': '{"locales": ["en-US"]}'
+    }
     headers = {
-        "Ocp-Apim-Subscription-Key": config.speech_key,
-        "Content-Type": "audio/wav",
+        "Authorization": f"Bearer {token}",
         "Accept": "application/json"
     }
     
-    params = {
-        "language": "en-US",
-        "format": "detailed"
-    }
-    
-    response = requests.post(url, headers=headers, params=params, data=audio_bytes, timeout=60)
+    response = requests.post(url, headers=headers, files=files, data=data, timeout=120)
     
     if response.status_code == 200:
         result = response.json()
-        if result.get("RecognitionStatus") == "Success":
-            return result.get("DisplayText", "")
-        else:
-            return f"Recognition status: {result.get('RecognitionStatus', 'Unknown')}"
+        # Fast Transcription API returns combinedPhrases with display text
+        combined = result.get("combinedPhrases", [])
+        if combined:
+            return combined[0].get("text", "")
+        # Fallback to phrases
+        phrases = result.get("phrases", [])
+        if phrases:
+            return " ".join([p.get("text", "") for p in phrases])
+        return "No transcription result"
     else:
         logger.error(f"Speech API error: {response.status_code} - {response.text}")
         return f"Transcription failed: {response.status_code}"
@@ -198,14 +360,31 @@ def transcribe_audio_rest(audio_bytes: bytes, config: AzureConfig) -> str:
 # Text Analytics REST API
 # ============================================================================
 
+def get_language_token() -> str:
+    """Get access token for Language API using managed identity"""
+    try:
+        from azure.identity import DefaultAzureCredential
+        credential = DefaultAzureCredential()
+        token = credential.get_token("https://cognitiveservices.azure.com/.default")
+        return token.token
+    except Exception as e:
+        logger.error(f"Failed to get Language token via managed identity: {e}")
+        raise
+
 def analyze_health_text_rest(text: str, config: AzureConfig) -> dict:
     """Analyze text for health entities using REST API"""
     url = f"{config.language_endpoint}/language/analyze-text/jobs?api-version=2023-04-01"
     
-    headers = {
-        "Ocp-Apim-Subscription-Key": config.language_key,
-        "Content-Type": "application/json"
-    }
+    # Use managed identity token instead of API key
+    try:
+        token = get_language_token()
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json"
+        }
+    except Exception as e:
+        logger.error(f"Failed to authenticate for Language API: {e}")
+        return {"entities": [], "error": f"Authentication failed: {str(e)}"}
     
     payload = {
         "displayName": "Health Analysis",
@@ -232,7 +411,7 @@ def analyze_health_text_rest(text: str, config: AzureConfig) -> dict:
     # Poll for results
     for _ in range(30):  # Max 30 attempts
         time.sleep(2)
-        result_response = requests.get(operation_location, headers={"Ocp-Apim-Subscription-Key": config.language_key})
+        result_response = requests.get(operation_location, headers={"Authorization": f"Bearer {token}"})
         
         if result_response.status_code == 200:
             result = result_response.json()
@@ -240,21 +419,54 @@ def analyze_health_text_rest(text: str, config: AzureConfig) -> dict:
             
             if status == "succeeded":
                 entities = []
+                relations = []
                 try:
                     tasks = result.get("tasks", {}).get("items", [])
                     for task in tasks:
                         docs = task.get("results", {}).get("documents", [])
                         for doc in docs:
-                            for entity in doc.get("entities", []):
+                            # Build entity lookup by index
+                            doc_entities = doc.get("entities", [])
+                            entity_by_index = {}
+                            for idx, entity in enumerate(doc_entities):
                                 entities.append({
                                     "text": entity.get("text"),
                                     "category": entity.get("category"),
                                     "confidence_score": entity.get("confidenceScore", 0)
                                 })
+                                # Store by index for relation lookup (API uses #/documents/0/entities/N format)
+                                entity_by_index[idx] = entity
+                            
+                            # Process relations with proper entity text lookup
+                            for relation in doc.get("relations", []):
+                                relation_entities = []
+                                for rel_entity in relation.get("entities", []):
+                                    # Get the referenced entity - ref format is like "#/documents/0/entities/5"
+                                    ref = rel_entity.get("ref", "")
+                                    entity_data = {}
+                                    if "/entities/" in ref:
+                                        try:
+                                            entity_idx = int(ref.split("/entities/")[-1])
+                                            entity_data = entity_by_index.get(entity_idx, {})
+                                        except (ValueError, IndexError):
+                                            pass
+                                    relation_entities.append({
+                                        "text": entity_data.get("text", "Unknown"),
+                                        "role": rel_entity.get("role", ""),
+                                        "category": entity_data.get("category", ""),
+                                        "confidenceScore": entity_data.get("confidenceScore", 0),
+                                        "offset": entity_data.get("offset", 0),
+                                        "length": entity_data.get("length", 0)
+                                    })
+                                relations.append({
+                                    "relationType": relation.get("relationType"),
+                                    "confidenceScore": relation.get("confidenceScore", 0),
+                                    "entities": relation_entities
+                                })
                 except Exception as e:
                     logger.error(f"Error parsing health results: {e}")
                 
-                return {"entities": entities}
+                return {"entities": entities, "relations": relations}
             elif status == "failed":
                 return {"entities": [], "error": "Analysis failed"}
     
@@ -369,9 +581,19 @@ def process_transcription(req: func.HttpRequest) -> func.HttpResponse:
                 entities_by_category[cat] = []
             entities_by_category[cat].append(e)
         
+        # Calculate summary
+        total_entities = len(health_results.get("entities", []))
+        total_relations = len(health_results.get("relations", []))
+        
         job.medical_entities = {
             "entities": health_results.get("entities", []),
-            "entities_by_category": entities_by_category
+            "entities_by_category": entities_by_category,
+            "relations": health_results.get("relations", []),
+            "summary": {
+                "total_entities": total_entities,
+                "total_relations": total_relations,
+                "categories": list(entities_by_category.keys())
+            }
         }
         job.status = JobStatus.COMPLETED
         job.processing_time_seconds = time.time() - start_time
@@ -433,12 +655,16 @@ def get_results(req: func.HttpRequest) -> func.HttpResponse:
         job_data = container.read_item(item=job_id, partition_key=job_id)
         job = TranscriptionJob.from_dict(job_data)
         
+        # Generate FHIR bundle from entities
+        fhir_bundle = generate_fhir_bundle(job.medical_entities) if job.medical_entities else None
+        
         result = {
             "job_id": job.id, "filename": job.filename, "status": job.status,
             "created_at": job.created_at, "updated_at": job.updated_at,
             "processing_time_seconds": job.processing_time_seconds,
             "transcription": {"text": job.transcription_text, "word_count": len(job.transcription_text.split()) if job.transcription_text else 0},
             "medical_analysis": job.medical_entities,
+            "fhir_bundle": fhir_bundle,
             "error_message": job.error_message
         }
         return func.HttpResponse(json.dumps(result, indent=2), status_code=200, mimetype="application/json")

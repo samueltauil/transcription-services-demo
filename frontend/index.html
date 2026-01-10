@@ -10,32 +10,48 @@
     <div class="container">
         <header>
             <div class="logo">
-                <svg class="azure-icon" viewBox="0 0 24 24" width="32" height="32">
-                    <path fill="#0078d4" d="M13.05 4.24l-3.14 5.72-6.15 1.09 4.45 4.34-.7 6.12 5.54-2.92 5.54 2.92-.7-6.12 4.45-4.34-6.15-1.09z"/>
+                <svg class="azure-icon" viewBox="0 0 96 96" width="40" height="40">
+                    <defs>
+                        <linearGradient id="azure-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stop-color="#0078d4"/>
+                            <stop offset="100%" stop-color="#00bcf2"/>
+                        </linearGradient>
+                    </defs>
+                    <path fill="url(#azure-gradient)" d="M33.338 6.544h26.038l-27.03 80.087a4.152 4.152 0 0 1-3.933 2.824H8.149a4.145 4.145 0 0 1-3.928-5.47L29.404 9.368a4.152 4.152 0 0 1 3.934-2.825zm53.412 56.882H42.756a1.911 1.911 0 0 0-1.305 3.303l26.532 24.764a4.171 4.171 0 0 0 2.846 1.121h22.741l-5.82-29.188zm-8.963-63.426h-26.21a4.152 4.152 0 0 0-3.927 2.824l-4.319 12.79 26.03 24.28a1.91 1.91 0 0 0 1.305.523h22.742L77.787 0z"/>
                 </svg>
-                <h1>Healthcare Transcription Services</h1>
+                <div class="header-text">
+                    <h1>Healthcare Transcription Services</h1>
+                    <p class="subtitle">Powered by Azure AI</p>
+                </div>
             </div>
-            <p class="subtitle">Azure Speech Services + Text Analytics for Health</p>
         </header>
 
         <main>
             <!-- Upload Section -->
             <section class="upload-section card">
-                <h2>📤 Upload Audio Recording</h2>
+                <h2>Upload Audio Recording</h2>
                 <p>Upload an audio file from a healthcare interview or conversation for transcription and medical entity extraction.</p>
                 
                 <div class="upload-area" id="dropZone">
-                    <div class="upload-icon">🎙️</div>
+                    <div class="upload-icon">
+                        <svg viewBox="0 0 24 24" width="48" height="48" fill="#0078d4">
+                            <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.91-3c-.49 0-.9.36-.98.85C16.52 14.2 14.47 16 12 16s-4.52-1.8-4.93-4.15c-.08-.49-.49-.85-.98-.85-.61 0-1.09.54-1 1.14.49 3 2.89 5.35 5.91 5.78V20c0 .55.45 1 1 1s1-.45 1-1v-2.08c3.02-.43 5.42-2.78 5.91-5.78.1-.6-.39-1.14-1-1.14z"/>
+                        </svg>
+                    </div>
                     <p>Drag & drop audio file here or click to browse</p>
                     <p class="supported-formats">Supported: WAV, MP3, OGG, FLAC, M4A, WMA</p>
                     <input type="file" id="fileInput" accept=".wav,.mp3,.ogg,.flac,.m4a,.wma" hidden>
                 </div>
                 
                 <div class="selected-file" id="selectedFile" style="display: none;">
-                    <span class="file-icon">📁</span>
+                    <span class="file-icon">
+                        <svg viewBox="0 0 24 24" width="20" height="20" fill="#666">
+                            <path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/>
+                        </svg>
+                    </span>
                     <span class="file-name" id="fileName"></span>
                     <span class="file-size" id="fileSize"></span>
-                    <button class="remove-btn" id="removeFile">✕</button>
+                    <button class="remove-btn" id="removeFile">&times;</button>
                 </div>
                 
                 <button class="primary-btn" id="uploadBtn" disabled>
@@ -46,7 +62,7 @@
 
             <!-- Status Section -->
             <section class="status-section card" id="statusSection" style="display: none;">
-                <h2>⏳ Processing Status</h2>
+                <h2>Processing Status</h2>
                 <div class="status-container">
                     <div class="status-step" data-step="upload">
                         <div class="step-indicator"></div>
@@ -70,27 +86,49 @@
 
             <!-- Results Section -->
             <section class="results-section" id="resultsSection" style="display: none;">
-                <h2>📊 Analysis Results</h2>
+                <h2>Analysis Results</h2>
+                
+                <!-- Cost Savings Banner -->
+                <div class="cost-savings-banner" id="costSavingsBanner">
+                    <div class="savings-info">
+                        <span class="savings-label">Cost Savings with Azure:</span>
+                        <span class="savings-value" id="actualSavings">$0.00</span>
+                        <span class="savings-details" id="savingsDetails">(0 min audio)</span>
+                    </div>
+                    <div class="cost-breakdown">
+                        <span class="cost-item-small">TranscribeMe: <strong id="transcribemeCostActual">$0.00</strong></span>
+                        <span class="cost-vs">vs</span>
+                        <span class="cost-item-small azure">Azure: <strong id="azureCostActual">$0.00</strong></span>
+                    </div>
+                </div>
                 
                 <!-- Summary Cards -->
                 <div class="summary-cards">
                     <div class="summary-card">
-                        <div class="card-icon">⏱️</div>
+                        <div class="card-icon">
+                            <svg viewBox="0 0 24 24" width="24" height="24" fill="#0078d4"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm.5-13H11v6l5.25 3.15.75-1.23-4.5-2.67z"/></svg>
+                        </div>
                         <div class="card-value" id="processingTime">-</div>
                         <div class="card-label">Processing Time</div>
                     </div>
                     <div class="summary-card">
-                        <div class="card-icon">📝</div>
+                        <div class="card-icon">
+                            <svg viewBox="0 0 24 24" width="24" height="24" fill="#0078d4"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>
+                        </div>
                         <div class="card-value" id="wordCount">-</div>
                         <div class="card-label">Words Transcribed</div>
                     </div>
                     <div class="summary-card">
-                        <div class="card-icon">🏥</div>
+                        <div class="card-icon">
+                            <svg viewBox="0 0 24 24" width="24" height="24" fill="#0078d4"><path d="M19 3H5c-1.1 0-1.99.9-1.99 2L3 19c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-1 11h-4v4h-4v-4H6v-4h4V6h4v4h4v4z"/></svg>
+                        </div>
                         <div class="card-value" id="entityCount">-</div>
                         <div class="card-label">Medical Entities</div>
                     </div>
                     <div class="summary-card">
-                        <div class="card-icon">🔗</div>
+                        <div class="card-icon">
+                            <svg viewBox="0 0 24 24" width="24" height="24" fill="#0078d4"><path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"/></svg>
+                        </div>
                         <div class="card-value" id="relationCount">-</div>
                         <div class="card-label">Relationships</div>
                     </div>
@@ -100,6 +138,7 @@
                 <div class="tabs">
                     <button class="tab active" data-tab="transcription">Transcription</button>
                     <button class="tab" data-tab="entities">Medical Entities</button>
+                    <button class="tab" data-tab="relations">Relationships</button>
                     <button class="tab" data-tab="fhir">FHIR Output</button>
                 </div>
 
@@ -117,42 +156,23 @@
                         </div>
                     </div>
                     
+                    <div class="tab-pane" id="relationsTab">
+                        <div class="relations-container" id="relationsContainer">
+                            <p class="placeholder">Relationships between medical entities will appear here...</p>
+                        </div>
+                    </div>
+                    
                     <div class="tab-pane" id="fhirTab">
-                        <div class="fhir-output">
+                        <div class="fhir-actions">
+                            <button class="secondary-btn" id="downloadFhir">
+                                <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" style="vertical-align: middle; margin-right: 6px;"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>Download FHIR Bundle
+                            </button>
+                            <button class="secondary-btn" id="toggleFhirView">
+                                <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" style="vertical-align: middle; margin-right: 6px;" id="toggleFhirIcon"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg><span id="toggleFhirText">Show FHIR JSON</span>
+                            </button>
+                        </div>
+                        <div class="fhir-output collapsed" id="fhirContainer">
                             <pre id="fhirOutput"><code>FHIR bundle will appear here...</code></pre>
-                        </div>
-                        <button class="secondary-btn" id="downloadFhir">
-                            📥 Download FHIR Bundle
-                        </button>
-                    </div>
-                </div>
-            </section>
-
-            <!-- Cost Comparison Section -->
-            <section class="cost-section card">
-                <h2>💰 Cost Comparison</h2>
-                <div class="cost-calculator">
-                    <div class="cost-input">
-                        <label for="minutesInput">Audio Minutes:</label>
-                        <input type="number" id="minutesInput" value="60" min="1">
-                    </div>
-                    <div class="cost-comparison">
-                        <div class="cost-item transcribeme">
-                            <h3>TranscribeMe</h3>
-                            <p class="cost-rate">$0.79/minute</p>
-                            <p class="cost-total" id="transcribemeCost">$47.40</p>
-                            <p class="cost-time">2-3 business days</p>
-                        </div>
-                        <div class="cost-item azure">
-                            <h3>Azure Speech</h3>
-                            <p class="cost-rate">$0.003/minute</p>
-                            <p class="cost-total" id="azureCost">$0.18</p>
-                            <p class="cost-time">Real-time processing</p>
-                        </div>
-                        <div class="cost-savings">
-                            <h3>Savings</h3>
-                            <p class="savings-amount" id="savingsAmount">$47.22</p>
-                            <p class="savings-percent" id="savingsPercent">99.6%</p>
                         </div>
                     </div>
                 </div>
@@ -164,7 +184,7 @@
             <p>
                 <a href="https://learn.microsoft.com/azure/ai-services/speech-service/speech-to-text" target="_blank">Speech Services</a> |
                 <a href="https://learn.microsoft.com/azure/ai-services/language-service/text-analytics-for-health/overview" target="_blank">Text Analytics for Health</a> |
-                <a href="https://learn.microsoft.com/azure/ai-services/language-service/text-analytics-for-health/fhir" target="_blank">FHIR Integration</a>
+                <a href="https://learn.microsoft.com/azure/ai-services/language-service/text-analytics-for-health/how-to/call-api#submitting-a-fast-healthcare-interoperability-resources-fhir-request" target="_blank">FHIR Integration</a>
             </p>
         </footer>
     </div>

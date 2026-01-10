@@ -1,0 +1,446 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.39.26.7824",
+      "templateHash": "14949180369549694767"
+    }
+  },
+  "parameters": {
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "The location for all resources"
+      }
+    },
+    "baseName": {
+      "type": "string",
+      "defaultValue": "healthtranscript",
+      "metadata": {
+        "description": "Base name for all resources"
+      }
+    },
+    "environment": {
+      "type": "string",
+      "defaultValue": "dev",
+      "allowedValues": [
+        "dev",
+        "staging",
+        "prod"
+      ],
+      "metadata": {
+        "description": "Environment (dev, staging, prod)"
+      }
+    }
+  },
+  "variables": {
+    "uniqueSuffix": "[uniqueString(resourceGroup().id)]",
+    "resourceBaseName": "[format('{0}-{1}', parameters('baseName'), parameters('environment'))]",
+    "storageBlobDataOwnerRoleId": "b7e6dc6d-f1e8-4753-8033-0f276bb0955b",
+    "storageQueueDataContributorRoleId": "974c5e8b-45b9-4653-ba55-5f855dd0fb88",
+    "cognitiveServicesUserRoleId": "a97b65f3-24c7-4388-baec-2e87135dc908",
+    "cosmosDbDataContributorRoleId": "00000000-0000-0000-0000-000000000002"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Storage/storageAccounts",
+      "apiVersion": "2023-01-01",
+      "name": "[toLower(format('{0}{1}st', take(parameters('baseName'), 10), take(variables('uniqueSuffix'), 8)))]",
+      "location": "[parameters('location')]",
+      "sku": {
+        "name": "Standard_LRS"
+      },
+      "kind": "StorageV2",
+      "properties": {
+        "supportsHttpsTrafficOnly": true,
+        "minimumTlsVersion": "TLS1_2",
+        "allowSharedKeyAccess": true,
+        "encryption": {
+          "services": {
+            "blob": {
+              "enabled": true
+            },
+            "queue": {
+              "enabled": true
+            }
+          },
+          "keySource": "Microsoft.Storage"
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/blobServices/containers",
+      "apiVersion": "2023-01-01",
+      "name": "[format('{0}/default/audio-files', toLower(format('{0}{1}st', take(parameters('baseName'), 10), take(variables('uniqueSuffix'), 8))))]",
+      "properties": {
+        "publicAccess": "None"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', toLower(format('{0}{1}st', take(parameters('baseName'), 10), take(variables('uniqueSuffix'), 8))))]"
+      ]
+    },
+    {
+      "type": "Microsoft.DocumentDB/databaseAccounts",
+      "apiVersion": "2023-11-15",
+      "name": "[format('{0}-cosmos-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6))]",
+      "location": "[parameters('location')]",
+      "kind": "GlobalDocumentDB",
+      "properties": {
+        "databaseAccountOfferType": "Standard",
+        "disableLocalAuth": true,
+        "consistencyPolicy": {
+          "defaultConsistencyLevel": "Session"
+        },
+        "locations": [
+          {
+            "locationName": "[parameters('location')]",
+            "failoverPriority": 0,
+            "isZoneRedundant": false
+          }
+        ],
+        "capabilities": [
+          {
+            "name": "EnableServerless"
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.DocumentDB/databaseAccounts/sqlDatabases",
+      "apiVersion": "2023-11-15",
+      "name": "[format('{0}/{1}', format('{0}-cosmos-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6)), 'transcription-db')]",
+      "properties": {
+        "resource": {
+          "id": "transcription-db"
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts', format('{0}-cosmos-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6)))]"
+      ]
+    },
+    {
+      "type": "Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers",
+      "apiVersion": "2023-11-15",
+      "name": "[format('{0}/{1}/{2}', format('{0}-cosmos-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6)), 'transcription-db', 'transcriptions')]",
+      "properties": {
+        "resource": {
+          "id": "transcriptions",
+          "partitionKey": {
+            "paths": [
+              "/id"
+            ],
+            "kind": "Hash"
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts/sqlDatabases', format('{0}-cosmos-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6)), 'transcription-db')]"
+      ]
+    },
+    {
+      "type": "Microsoft.CognitiveServices/accounts",
+      "apiVersion": "2023-10-01-preview",
+      "name": "[format('{0}-speech-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6))]",
+      "location": "[parameters('location')]",
+      "kind": "SpeechServices",
+      "sku": {
+        "name": "S0"
+      },
+      "properties": {
+        "customSubDomainName": "[format('{0}-speech-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6))]",
+        "publicNetworkAccess": "Enabled",
+        "disableLocalAuth": true
+      }
+    },
+    {
+      "type": "Microsoft.CognitiveServices/accounts",
+      "apiVersion": "2023-10-01-preview",
+      "name": "[format('{0}-lang-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6))]",
+      "location": "[parameters('location')]",
+      "kind": "TextAnalytics",
+      "sku": {
+        "name": "S"
+      },
+      "properties": {
+        "customSubDomainName": "[format('{0}-lang-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6))]",
+        "publicNetworkAccess": "Enabled",
+        "disableLocalAuth": true
+      }
+    },
+    {
+      "type": "Microsoft.Web/serverfarms",
+      "apiVersion": "2023-01-01",
+      "name": "[format('{0}-plan-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6))]",
+      "location": "[parameters('location')]",
+      "sku": {
+        "name": "EP1",
+        "tier": "ElasticPremium",
+        "family": "EP"
+      },
+      "kind": "elastic",
+      "properties": {
+        "reserved": true,
+        "maximumElasticWorkerCount": 20
+      }
+    },
+    {
+      "type": "Microsoft.Insights/components",
+      "apiVersion": "2020-02-02",
+      "name": "[format('{0}-insights-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6))]",
+      "location": "[parameters('location')]",
+      "kind": "web",
+      "properties": {
+        "Application_Type": "web",
+        "Request_Source": "rest"
+      }
+    },
+    {
+      "type": "Microsoft.Web/sites",
+      "apiVersion": "2023-01-01",
+      "name": "[format('{0}-func-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6))]",
+      "location": "[parameters('location')]",
+      "kind": "functionapp,linux",
+      "identity": {
+        "type": "SystemAssigned"
+      },
+      "properties": {
+        "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', format('{0}-plan-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6)))]",
+        "httpsOnly": true,
+        "siteConfig": {
+          "pythonVersion": "3.11",
+          "linuxFxVersion": "Python|3.11",
+          "cors": {
+            "allowedOrigins": [
+              "*"
+            ]
+          },
+          "appSettings": [
+            {
+              "name": "AzureWebJobsStorage__accountName",
+              "value": "[toLower(format('{0}{1}st', take(parameters('baseName'), 10), take(variables('uniqueSuffix'), 8)))]"
+            },
+            {
+              "name": "FUNCTIONS_EXTENSION_VERSION",
+              "value": "~4"
+            },
+            {
+              "name": "FUNCTIONS_WORKER_RUNTIME",
+              "value": "python"
+            },
+            {
+              "name": "APPINSIGHTS_INSTRUMENTATIONKEY",
+              "value": "[reference(resourceId('Microsoft.Insights/components', format('{0}-insights-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6))), '2020-02-02').InstrumentationKey]"
+            },
+            {
+              "name": "APPLICATIONINSIGHTS_CONNECTION_STRING",
+              "value": "[reference(resourceId('Microsoft.Insights/components', format('{0}-insights-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6))), '2020-02-02').ConnectionString]"
+            },
+            {
+              "name": "AZURE_SPEECH_ENDPOINT",
+              "value": "[reference(resourceId('Microsoft.CognitiveServices/accounts', format('{0}-speech-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6))), '2023-10-01-preview').endpoint]"
+            },
+            {
+              "name": "AZURE_SPEECH_REGION",
+              "value": "[parameters('location')]"
+            },
+            {
+              "name": "AZURE_LANGUAGE_ENDPOINT",
+              "value": "[reference(resourceId('Microsoft.CognitiveServices/accounts', format('{0}-lang-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6))), '2023-10-01-preview').endpoint]"
+            },
+            {
+              "name": "COSMOS_ENDPOINT",
+              "value": "[reference(resourceId('Microsoft.DocumentDB/databaseAccounts', format('{0}-cosmos-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6))), '2023-11-15').documentEndpoint]"
+            },
+            {
+              "name": "COSMOS_DATABASE_NAME",
+              "value": "transcription-db"
+            },
+            {
+              "name": "COSMOS_CONTAINER_NAME",
+              "value": "transcriptions"
+            },
+            {
+              "name": "STORAGE_ACCOUNT_NAME",
+              "value": "[toLower(format('{0}{1}st', take(parameters('baseName'), 10), take(variables('uniqueSuffix'), 8)))]"
+            },
+            {
+              "name": "STORAGE_CONTAINER_NAME",
+              "value": "audio-files"
+            },
+            {
+              "name": "SCM_DO_BUILD_DURING_DEPLOYMENT",
+              "value": "true"
+            },
+            {
+              "name": "ENABLE_ORYX_BUILD",
+              "value": "true"
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Insights/components', format('{0}-insights-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6)))]",
+        "[resourceId('Microsoft.Web/serverfarms', format('{0}-plan-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6)))]",
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts', format('{0}-cosmos-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6)))]",
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts/sqlDatabases/containers', format('{0}-cosmos-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6)), 'transcription-db', 'transcriptions')]",
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts/sqlDatabases', format('{0}-cosmos-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6)), 'transcription-db')]",
+        "[resourceId('Microsoft.CognitiveServices/accounts', format('{0}-lang-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6)))]",
+        "[resourceId('Microsoft.CognitiveServices/accounts', format('{0}-speech-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6)))]",
+        "[resourceId('Microsoft.Storage/storageAccounts', toLower(format('{0}{1}st', take(parameters('baseName'), 10), take(variables('uniqueSuffix'), 8))))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Web/sites/basicPublishingCredentialsPolicies",
+      "apiVersion": "2023-01-01",
+      "name": "[format('{0}/{1}', format('{0}-func-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6)), 'scm')]",
+      "properties": {
+        "allow": true
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/sites', format('{0}-func-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6)))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Web/sites/basicPublishingCredentialsPolicies",
+      "apiVersion": "2023-01-01",
+      "name": "[format('{0}/{1}', format('{0}-func-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6)), 'ftp')]",
+      "properties": {
+        "allow": true
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/sites', format('{0}-func-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6)))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[format('Microsoft.Storage/storageAccounts/{0}', toLower(format('{0}{1}st', take(parameters('baseName'), 10), take(variables('uniqueSuffix'), 8))))]",
+      "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', toLower(format('{0}{1}st', take(parameters('baseName'), 10), take(variables('uniqueSuffix'), 8)))), resourceId('Microsoft.Web/sites', format('{0}-func-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6))), variables('storageBlobDataOwnerRoleId'))]",
+      "properties": {
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('storageBlobDataOwnerRoleId'))]",
+        "principalId": "[reference(resourceId('Microsoft.Web/sites', format('{0}-func-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6))), '2023-01-01', 'full').identity.principalId]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/sites', format('{0}-func-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6)))]",
+        "[resourceId('Microsoft.Storage/storageAccounts', toLower(format('{0}{1}st', take(parameters('baseName'), 10), take(variables('uniqueSuffix'), 8))))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[format('Microsoft.Storage/storageAccounts/{0}', toLower(format('{0}{1}st', take(parameters('baseName'), 10), take(variables('uniqueSuffix'), 8))))]",
+      "name": "[guid(resourceId('Microsoft.Storage/storageAccounts', toLower(format('{0}{1}st', take(parameters('baseName'), 10), take(variables('uniqueSuffix'), 8)))), resourceId('Microsoft.Web/sites', format('{0}-func-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6))), variables('storageQueueDataContributorRoleId'))]",
+      "properties": {
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('storageQueueDataContributorRoleId'))]",
+        "principalId": "[reference(resourceId('Microsoft.Web/sites', format('{0}-func-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6))), '2023-01-01', 'full').identity.principalId]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/sites', format('{0}-func-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6)))]",
+        "[resourceId('Microsoft.Storage/storageAccounts', toLower(format('{0}{1}st', take(parameters('baseName'), 10), take(variables('uniqueSuffix'), 8))))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[format('Microsoft.CognitiveServices/accounts/{0}', format('{0}-speech-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6)))]",
+      "name": "[guid(resourceId('Microsoft.CognitiveServices/accounts', format('{0}-speech-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6))), resourceId('Microsoft.Web/sites', format('{0}-func-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6))), variables('cognitiveServicesUserRoleId'))]",
+      "properties": {
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('cognitiveServicesUserRoleId'))]",
+        "principalId": "[reference(resourceId('Microsoft.Web/sites', format('{0}-func-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6))), '2023-01-01', 'full').identity.principalId]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/sites', format('{0}-func-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6)))]",
+        "[resourceId('Microsoft.CognitiveServices/accounts', format('{0}-speech-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6)))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Authorization/roleAssignments",
+      "apiVersion": "2022-04-01",
+      "scope": "[format('Microsoft.CognitiveServices/accounts/{0}', format('{0}-lang-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6)))]",
+      "name": "[guid(resourceId('Microsoft.CognitiveServices/accounts', format('{0}-lang-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6))), resourceId('Microsoft.Web/sites', format('{0}-func-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6))), variables('cognitiveServicesUserRoleId'))]",
+      "properties": {
+        "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('cognitiveServicesUserRoleId'))]",
+        "principalId": "[reference(resourceId('Microsoft.Web/sites', format('{0}-func-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6))), '2023-01-01', 'full').identity.principalId]",
+        "principalType": "ServicePrincipal"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Web/sites', format('{0}-func-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6)))]",
+        "[resourceId('Microsoft.CognitiveServices/accounts', format('{0}-lang-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6)))]"
+      ]
+    },
+    {
+      "type": "Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments",
+      "apiVersion": "2023-11-15",
+      "name": "[format('{0}/{1}', format('{0}-cosmos-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6)), guid(resourceId('Microsoft.DocumentDB/databaseAccounts', format('{0}-cosmos-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6))), resourceId('Microsoft.Web/sites', format('{0}-func-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6))), variables('cosmosDbDataContributorRoleId')))]",
+      "properties": {
+        "roleDefinitionId": "[format('{0}/sqlRoleDefinitions/{1}', resourceId('Microsoft.DocumentDB/databaseAccounts', format('{0}-cosmos-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6))), variables('cosmosDbDataContributorRoleId'))]",
+        "principalId": "[reference(resourceId('Microsoft.Web/sites', format('{0}-func-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6))), '2023-01-01', 'full').identity.principalId]",
+        "scope": "[resourceId('Microsoft.DocumentDB/databaseAccounts', format('{0}-cosmos-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6)))]"
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.DocumentDB/databaseAccounts', format('{0}-cosmos-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6)))]",
+        "[resourceId('Microsoft.Web/sites', format('{0}-func-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6)))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Web/staticSites",
+      "apiVersion": "2023-01-01",
+      "name": "[format('{0}-web-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6))]",
+      "location": "centralus",
+      "sku": {
+        "name": "Free",
+        "tier": "Free"
+      },
+      "properties": {
+        "buildProperties": {
+          "appLocation": "/frontend",
+          "outputLocation": "/frontend"
+        }
+      }
+    }
+  ],
+  "outputs": {
+    "functionAppName": {
+      "type": "string",
+      "value": "[format('{0}-func-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6))]"
+    },
+    "functionAppUrl": {
+      "type": "string",
+      "value": "[format('https://{0}', reference(resourceId('Microsoft.Web/sites', format('{0}-func-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6))), '2023-01-01').defaultHostName)]"
+    },
+    "staticWebAppName": {
+      "type": "string",
+      "value": "[format('{0}-web-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6))]"
+    },
+    "staticWebAppUrl": {
+      "type": "string",
+      "value": "[format('https://{0}', reference(resourceId('Microsoft.Web/staticSites', format('{0}-web-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6))), '2023-01-01').defaultHostname)]"
+    },
+    "speechServiceEndpoint": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.CognitiveServices/accounts', format('{0}-speech-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6))), '2023-10-01-preview').endpoint]"
+    },
+    "languageServiceEndpoint": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.CognitiveServices/accounts', format('{0}-lang-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6))), '2023-10-01-preview').endpoint]"
+    },
+    "cosmosAccountEndpoint": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.DocumentDB/databaseAccounts', format('{0}-cosmos-{1}', variables('resourceBaseName'), take(variables('uniqueSuffix'), 6))), '2023-11-15').documentEndpoint]"
+    },
+    "storageAccountName": {
+      "type": "string",
+      "value": "[toLower(format('{0}{1}st', take(parameters('baseName'), 10), take(variables('uniqueSuffix'), 8)))]"
+    },
+    "resourceGroup": {
+      "type": "string",
+      "value": "[resourceGroup().name]"
+    }
+  }
+}

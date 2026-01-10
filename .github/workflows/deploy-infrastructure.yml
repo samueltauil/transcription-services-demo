@@ -1,13 +1,8 @@
 # GitHub Actions workflow for deploying Azure Infrastructure via Bicep
-name: Deploy Infrastructure
+# This workflow provisions all Azure resources needed for the Healthcare Transcription Services
+name: 1. Deploy Infrastructure
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'infra/**'
-      - '.github/workflows/deploy-infrastructure.yml'
   workflow_dispatch:
     inputs:
       environment:
@@ -19,10 +14,18 @@ on:
           - dev
           - staging
           - prod
+      resourceGroup:
+        description: 'Azure Resource Group name'
+        required: true
+        default: 'speech-demo-west'
+      location:
+        description: 'Azure region'
+        required: true
+        default: 'westus2'
 
 env:
-  AZURE_RESOURCE_GROUP: 'speech-demo-west'
-  AZURE_LOCATION: 'westus2'
+  AZURE_RESOURCE_GROUP: ${{ github.event.inputs.resourceGroup || 'speech-demo-west' }}
+  AZURE_LOCATION: ${{ github.event.inputs.location || 'westus2' }}
 
 jobs:
   validate:
@@ -38,19 +41,32 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+      - name: Create resource group if not exists
+        run: |
+          az group create \
+            --name ${{ env.AZURE_RESOURCE_GROUP }} \
+            --location ${{ env.AZURE_LOCATION }} \
+            --output none || true
+
       - name: Validate Bicep template
         uses: azure/arm-deploy@v2
         with:
           resourceGroupName: ${{ env.AZURE_RESOURCE_GROUP }}
           template: ./infra/main.bicep
-          parameters: environment=${{ github.event.inputs.environment || 'dev' }}
+          parameters: >
+            environment=${{ github.event.inputs.environment || 'dev' }}
+            location=${{ env.AZURE_LOCATION }}
           deploymentMode: Validate
 
   deploy:
     runs-on: ubuntu-latest
     name: Deploy Infrastructure
     needs: validate
-    environment: ${{ github.event.inputs.environment || 'dev' }}
+    outputs:
+      functionAppName: ${{ steps.deploy.outputs.functionAppName }}
+      staticWebAppName: ${{ steps.deploy.outputs.staticWebAppName }}
+      functionAppUrl: ${{ steps.deploy.outputs.functionAppUrl }}
+      staticWebAppUrl: ${{ steps.deploy.outputs.staticWebAppUrl }}
     
     steps:
       - name: Checkout repository
@@ -62,14 +78,49 @@ jobs:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: Deploy Bicep template
+        id: deploy
         uses: azure/arm-deploy@v2
         with:
           resourceGroupName: ${{ env.AZURE_RESOURCE_GROUP }}
           template: ./infra/main.bicep
-          parameters: environment=${{ github.event.inputs.environment || 'dev' }}
+          parameters: >
+            environment=${{ github.event.inputs.environment || 'dev' }}
+            location=${{ env.AZURE_LOCATION }}
           deploymentName: 'github-${{ github.run_number }}'
+
+      - name: Wait for RBAC propagation
+        run: |
+          echo "Waiting 60 seconds for RBAC role assignments to propagate..."
+          sleep 60
+
+      - name: Get Static Web App deployment token
+        id: swa-token
+        run: |
+          TOKEN=$(az staticwebapp secrets list \
+            --name ${{ steps.deploy.outputs.staticWebAppName }} \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --query "properties.apiKey" -o tsv)
+          echo "::add-mask::$TOKEN"
+          echo "token=$TOKEN" >> $GITHUB_OUTPUT
+          echo "SWA_TOKEN=$TOKEN" >> $GITHUB_ENV
 
       - name: Output deployment results
         run: |
-          echo "Deployment completed successfully!"
-          echo "Check the Azure Portal for resource details."
+          echo "## Deployment Complete! 🎉" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Resources Created:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Function App:** \`${{ steps.deploy.outputs.functionAppName }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Function URL:** ${{ steps.deploy.outputs.functionAppUrl }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Static Web App:** \`${{ steps.deploy.outputs.staticWebAppName }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Frontend URL:** ${{ steps.deploy.outputs.staticWebAppUrl }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### ⚠️ Required: Set GitHub Secrets" >> $GITHUB_STEP_SUMMARY
+          echo "Before running deployment workflows, add these secrets:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "1. **\`AZURE_FUNCTIONAPP_NAME\`**: \`${{ steps.deploy.outputs.functionAppName }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "2. **\`AZURE_STATIC_WEB_APPS_API_TOKEN\`**: Get from Azure Portal → Static Web App → Manage deployment token" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Next Steps:" >> $GITHUB_STEP_SUMMARY
+          echo "1. Add the secrets above to your repository" >> $GITHUB_STEP_SUMMARY
+          echo "2. Run 'Deploy Azure Functions' workflow" >> $GITHUB_STEP_SUMMARY
+          echo "3. Run 'Deploy Static Web App' workflow" >> $GITHUB_STEP_SUMMARY

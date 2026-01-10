@@ -1,5 +1,5 @@
 # GitHub Actions workflow for deploying Static Web App (Frontend)
-name: Deploy Static Web App
+name: 3. Deploy Static Web App
 
 on:
   push:
@@ -15,10 +15,18 @@ on:
     paths:
       - 'frontend/**'
   workflow_dispatch:
+    inputs:
+      resourceGroup:
+        description: 'Azure Resource Group (for auto-config)'
+        required: false
+        default: 'speech-demo-west'
+
+env:
+  AZURE_RESOURCE_GROUP: ${{ github.event.inputs.resourceGroup || 'speech-demo-west' }}
 
 jobs:
   build-and-deploy:
-    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.action != 'closed')
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.action != 'closed')
     runs-on: ubuntu-latest
     name: Build and Deploy
     
@@ -28,6 +36,46 @@ jobs:
         with:
           submodules: true
 
+      - name: Validate deployment token
+        run: |
+          if [ -z "${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}" ]; then
+            echo "❌ Error: AZURE_STATIC_WEB_APPS_API_TOKEN secret is not set!"
+            echo ""
+            echo "To get the deployment token:"
+            echo "1. Go to Azure Portal → Static Web Apps → Your App"
+            echo "2. Click 'Manage deployment token'"
+            echo "3. Copy the token and add it as a GitHub secret"
+            exit 1
+          fi
+          echo "✓ Deployment token found"
+
+      - name: Login to Azure (optional - for auto-config)
+        uses: azure/login@v2
+        continue-on-error: true
+        id: azure-login
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Auto-configure API URL
+        if: steps.azure-login.outcome == 'success'
+        run: |
+          # Get Function App name from Azure
+          FUNC_NAME=$(az functionapp list -g ${{ env.AZURE_RESOURCE_GROUP }} --query "[0].name" -o tsv 2>/dev/null || echo "")
+          
+          if [ -n "$FUNC_NAME" ]; then
+            echo "✓ Found Function App: $FUNC_NAME"
+            
+            # Update staticwebapp.config.json
+            sed -i "s|\"[^\"]*\.azurewebsites\.net\"|\"${FUNC_NAME}.azurewebsites.net\"|g" frontend/staticwebapp.config.json
+            
+            # Update app.js fallback URL
+            sed -i "s|return 'https://[^']*\.azurewebsites\.net/api'|return 'https://${FUNC_NAME}.azurewebsites.net/api'|g" frontend/app.js
+            
+            echo "✓ Frontend configured for: https://${FUNC_NAME}.azurewebsites.net/api"
+          else
+            echo "⚠️ Could not find Function App - using existing configuration"
+          fi
+
       - name: Build and Deploy to Azure Static Web Apps
         id: builddeploy
         uses: Azure/static-web-apps-deploy@v1
@@ -35,12 +83,17 @@ jobs:
           azure_static_web_apps_api_token: ${{ secrets.AZURE_STATIC_WEB_APPS_API_TOKEN }}
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           action: "upload"
-          # App location - where the frontend code lives
           app_location: "/frontend"
-          # No build output location since it's plain HTML/CSS/JS
           output_location: ""
-          # Skip API since we're using Azure Functions separately
           skip_api_build: true
+
+      - name: Output summary
+        run: |
+          echo "## Static Web App Deployed! 🎉" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "The frontend has been deployed successfully." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Check your Static Web App URL in the Azure Portal." >> $GITHUB_STEP_SUMMARY
 
   close-pull-request:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'

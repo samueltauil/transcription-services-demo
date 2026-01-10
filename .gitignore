@@ -103,4 +103,11 @@ temp/
 secrets/
 
 .venv-1
-logs.zip
+logs.zipdeploy.zip
+
+# Backup files
+*_original.py
+*_simple.py
+*_backup.py
+*_minimal.txt
+*_original.txt

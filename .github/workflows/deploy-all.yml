@@ -1,0 +1,317 @@
+# Complete deployment workflow - Infrastructure + Function App + Frontend
+# Use this for initial deployment or full redeployment
+name: 0. Deploy All (Complete)
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+      resourceGroup:
+        description: 'Azure Resource Group name'
+        required: true
+        default: 'speech-demo-west'
+      location:
+        description: 'Azure region'
+        required: true
+        default: 'westus2'
+      skipInfrastructure:
+        description: 'Skip infrastructure deployment (use existing resources)'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  AZURE_RESOURCE_GROUP: ${{ github.event.inputs.resourceGroup }}
+  AZURE_LOCATION: ${{ github.event.inputs.location }}
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  # ============================================================================
+  # Step 1: Deploy Infrastructure (if not skipped)
+  # ============================================================================
+  infrastructure:
+    if: ${{ github.event.inputs.skipInfrastructure != 'true' }}
+    runs-on: ubuntu-latest
+    name: 1️⃣ Deploy Infrastructure
+    outputs:
+      functionAppName: ${{ steps.deploy.outputs.functionAppName }}
+      staticWebAppName: ${{ steps.deploy.outputs.staticWebAppName }}
+      functionAppUrl: ${{ steps.deploy.outputs.functionAppUrl }}
+      staticWebAppUrl: ${{ steps.deploy.outputs.staticWebAppUrl }}
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Create resource group
+        run: |
+          az group create \
+            --name ${{ env.AZURE_RESOURCE_GROUP }} \
+            --location ${{ env.AZURE_LOCATION }} \
+            --output none || true
+
+      - name: Deploy Bicep template
+        id: deploy
+        uses: azure/arm-deploy@v2
+        with:
+          resourceGroupName: ${{ env.AZURE_RESOURCE_GROUP }}
+          template: ./infra/main.bicep
+          parameters: >
+            environment=${{ github.event.inputs.environment }}
+            location=${{ env.AZURE_LOCATION }}
+          deploymentName: 'full-deploy-${{ github.run_number }}'
+
+      - name: Wait for RBAC propagation
+        run: |
+          echo "⏳ Waiting 90 seconds for RBAC role assignments to propagate..."
+          sleep 90
+
+      - name: Output infrastructure details
+        run: |
+          echo "## Infrastructure Deployed ✅" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Resource | Name |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Function App | \`${{ steps.deploy.outputs.functionAppName }}\` |" >> $GITHUB_STEP_SUMMARY
+          echo "| Static Web App | \`${{ steps.deploy.outputs.staticWebAppName }}\` |" >> $GITHUB_STEP_SUMMARY
+
+  # ============================================================================
+  # Step 2: Deploy Function App
+  # ============================================================================
+  function-app:
+    runs-on: ubuntu-latest
+    name: 2️⃣ Deploy Function App
+    needs: [infrastructure]
+    if: always() && (needs.infrastructure.result == 'success' || needs.infrastructure.result == 'skipped')
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Determine Function App Name
+        id: func-name
+        run: |
+          if [ "${{ github.event.inputs.skipInfrastructure }}" == "true" ]; then
+            # Use secret when skipping infrastructure
+            NAME="${{ secrets.AZURE_FUNCTIONAPP_NAME }}"
+          else
+            # Use output from infrastructure deployment
+            NAME="${{ needs.infrastructure.outputs.functionAppName }}"
+          fi
+          
+          if [ -z "$NAME" ]; then
+            echo "❌ Function App name not available!"
+            echo "Set AZURE_FUNCTIONAPP_NAME secret or run infrastructure deployment"
+            exit 1
+          fi
+          
+          echo "name=$NAME" >> $GITHUB_OUTPUT
+          echo "✓ Function App: $NAME"
+
+      - name: Setup Python ${{ env.PYTHON_VERSION }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          mkdir -p .python_packages/lib/site-packages
+          pip install -r requirements.txt --target=".python_packages/lib/site-packages"
+
+      - name: Create deployment package
+        run: |
+          zip -r deploy.zip \
+            function_app.py \
+            host.json \
+            requirements.txt \
+            .python_packages \
+            -x "*.pyc" \
+            -x "*__pycache__*" \
+            -x "*.dist-info/*"
+
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Deploy Function App
+        run: |
+          FUNC_NAME="${{ steps.func-name.outputs.name }}"
+          
+          CREDS=$(az webapp deployment list-publishing-credentials \
+            --name $FUNC_NAME \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --query "[publishingUserName, publishingPassword]" -o tsv)
+          USER=$(echo "$CREDS" | head -1)
+          PASS=$(echo "$CREDS" | tail -1)
+          
+          HTTP_CODE=$(curl -s -X POST \
+            --user "$USER:$PASS" \
+            --data-binary @deploy.zip \
+            -H "Content-Type: application/zip" \
+            --max-time 600 \
+            -w "%{http_code}" \
+            -o /tmp/deploy_response.txt \
+            "https://$FUNC_NAME.scm.azurewebsites.net/api/zipdeploy?isAsync=false")
+          
+          if [ "$HTTP_CODE" -eq "200" ] || [ "$HTTP_CODE" -eq "202" ]; then
+            echo "✅ Function App deployed!"
+          else
+            echo "❌ Deployment failed: $HTTP_CODE"
+            exit 1
+          fi
+
+      - name: Restart and verify
+        run: |
+          FUNC_NAME="${{ steps.func-name.outputs.name }}"
+          sleep 30
+          az functionapp restart --name $FUNC_NAME --resource-group ${{ env.AZURE_RESOURCE_GROUP }}
+          sleep 30
+          
+          # Health check
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://$FUNC_NAME.azurewebsites.net/api/health" || echo "000")
+          echo "Health check: $HTTP_CODE"
+
+  # ============================================================================
+  # Step 3: Deploy Static Web App (Frontend)
+  # ============================================================================
+  frontend:
+    runs-on: ubuntu-latest
+    name: 3️⃣ Deploy Frontend
+    needs: [infrastructure, function-app]
+    if: always() && needs.function-app.result == 'success'
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Determine Function App Name
+        id: func-name
+        run: |
+          if [ "${{ github.event.inputs.skipInfrastructure }}" == "true" ]; then
+            FUNC_NAME="${{ secrets.AZURE_FUNCTIONAPP_NAME }}"
+          else
+            FUNC_NAME="${{ needs.infrastructure.outputs.functionAppName }}"
+          fi
+          
+          if [ -z "$FUNC_NAME" ]; then
+            FUNC_NAME=$(az functionapp list -g ${{ env.AZURE_RESOURCE_GROUP }} --query "[0].name" -o tsv)
+          fi
+          
+          echo "name=$FUNC_NAME" >> $GITHUB_OUTPUT
+          echo "✓ Function App: $FUNC_NAME"
+
+      - name: Update frontend configuration
+        run: |
+          FUNC_NAME="${{ steps.func-name.outputs.name }}"
+          
+          # Update staticwebapp.config.json with correct function app URL
+          sed -i "s|\"[^\"]*\.azurewebsites\.net\"|\"${FUNC_NAME}.azurewebsites.net\"|g" frontend/staticwebapp.config.json
+          
+          # Update app.js fallback URL
+          sed -i "s|return 'https://[^']*\.azurewebsites\.net/api'|return 'https://${FUNC_NAME}.azurewebsites.net/api'|g" frontend/app.js
+          
+          echo "✓ Frontend configured to use: https://${FUNC_NAME}.azurewebsites.net/api"
+          cat frontend/staticwebapp.config.json
+
+      - name: Get Static Web App deployment token
+        id: swa-token
+        run: |
+          if [ "${{ github.event.inputs.skipInfrastructure }}" == "true" ]; then
+            SWA_NAME="${{ secrets.AZURE_STATIC_WEB_APP_NAME }}"
+          else
+            SWA_NAME="${{ needs.infrastructure.outputs.staticWebAppName }}"
+          fi
+          
+          if [ -z "$SWA_NAME" ]; then
+            # Fallback: try to find it
+            SWA_NAME=$(az staticwebapp list -g ${{ env.AZURE_RESOURCE_GROUP }} --query "[0].name" -o tsv)
+          fi
+          
+          TOKEN=$(az staticwebapp secrets list \
+            --name "$SWA_NAME" \
+            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
+            --query "properties.apiKey" -o tsv)
+          
+          echo "::add-mask::$TOKEN"
+          echo "token=$TOKEN" >> $GITHUB_OUTPUT
+          echo "name=$SWA_NAME" >> $GITHUB_OUTPUT
+
+      - name: Deploy Frontend
+        uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ steps.swa-token.outputs.token }}
+          repo_token: ${{ secrets.GITHUB_TOKEN }}
+          action: "upload"
+          app_location: "/frontend"
+          output_location: ""
+          skip_api_build: true
+
+  # ============================================================================
+  # Summary
+  # ============================================================================
+  summary:
+    runs-on: ubuntu-latest
+    name: 📋 Deployment Summary
+    needs: [infrastructure, function-app, frontend]
+    if: always()
+    
+    steps:
+      - name: Login to Azure
+        uses: azure/login@v2
+        if: needs.frontend.result == 'success'
+        continue-on-error: true
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Get deployment URLs
+        id: urls
+        if: needs.frontend.result == 'success'
+        continue-on-error: true
+        run: |
+          FUNC_NAME=$(az functionapp list -g ${{ env.AZURE_RESOURCE_GROUP }} --query "[0].defaultHostName" -o tsv 2>/dev/null || echo "")
+          SWA_URL=$(az staticwebapp list -g ${{ env.AZURE_RESOURCE_GROUP }} --query "[0].defaultHostname" -o tsv 2>/dev/null || echo "")
+          echo "func_url=https://$FUNC_NAME" >> $GITHUB_OUTPUT
+          echo "swa_url=https://$SWA_URL" >> $GITHUB_OUTPUT
+
+      - name: Generate summary
+        run: |
+          echo "# Deployment Summary 🎉" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Step | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Infrastructure | ${{ needs.infrastructure.result == 'success' && '✅' || needs.infrastructure.result == 'skipped' && '⏭️ Skipped' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Function App | ${{ needs.function-app.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Frontend | ${{ needs.frontend.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ needs.frontend.result }}" == "success" ]; then
+            echo "## 🚀 Deployment Complete!" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Your Healthcare Transcription Service is now live." >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            if [ -n "${{ steps.urls.outputs.swa_url }}" ]; then
+              echo "**Frontend URL:** ${{ steps.urls.outputs.swa_url }}" >> $GITHUB_STEP_SUMMARY
+              echo "" >> $GITHUB_STEP_SUMMARY
+              echo "**API URL:** ${{ steps.urls.outputs.func_url }}" >> $GITHUB_STEP_SUMMARY
+            fi
+          fi

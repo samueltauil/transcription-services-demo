@@ -1,6 +1,6 @@
 # GitHub Actions workflow for deploying Azure Function App
-# Simplified version using REST APIs (no heavy Speech SDK)
-name: Deploy Azure Functions
+# Uses remote build for Python dependencies
+name: 2. Deploy Azure Functions
 
 on:
   push:
@@ -10,12 +10,20 @@ on:
       - 'function_app.py'
       - 'requirements.txt'
       - 'host.json'
+      - '.github/workflows/deploy-function.yml'
   workflow_dispatch:
+    inputs:
+      functionAppName:
+        description: 'Function App name (leave empty to use secret)'
+        required: false
+      resourceGroup:
+        description: 'Resource Group name'
+        required: false
+        default: 'speech-demo-west'
 
 env:
-  AZURE_FUNCTIONAPP_NAME: 'healthtranscript-func-si35ec'
   PYTHON_VERSION: '3.11'
-  RESOURCE_GROUP: 'speech-demo-west'
+  RESOURCE_GROUP: ${{ github.event.inputs.resourceGroup || 'speech-demo-west' }}
 
 jobs:
   build-and-deploy:
@@ -24,6 +32,26 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Set Function App Name
+        id: set-name
+        run: |
+          if [ -n "${{ github.event.inputs.functionAppName }}" ]; then
+            echo "name=${{ github.event.inputs.functionAppName }}" >> $GITHUB_OUTPUT
+          else
+            echo "name=${{ secrets.AZURE_FUNCTIONAPP_NAME }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Validate Function App Name
+        run: |
+          if [ -z "${{ steps.set-name.outputs.name }}" ]; then
+            echo "❌ Error: Function App name not set!"
+            echo "Please either:"
+            echo "  1. Set AZURE_FUNCTIONAPP_NAME as a repository secret"
+            echo "  2. Or provide functionAppName when triggering workflow manually"
+            exit 1
+          fi
+          echo "✓ Using Function App: ${{ steps.set-name.outputs.name }}"
 
       - name: Setup Python ${{ env.PYTHON_VERSION }}
         uses: actions/setup-python@v5
@@ -38,7 +66,6 @@ jobs:
 
       - name: Create deployment package
         run: |
-          # Create minimal zip
           zip -r deploy.zip \
             function_app.py \
             host.json \
@@ -47,7 +74,7 @@ jobs:
             -x "*.pyc" \
             -x "*__pycache__*" \
             -x "*.dist-info/*"
-          ls -lh deploy.zip
+          echo "Package size: $(ls -lh deploy.zip | awk '{print $5}')"
 
       - name: Login to Azure
         uses: azure/login@v2
@@ -56,18 +83,18 @@ jobs:
 
       - name: Deploy via Kudu zipdeploy
         run: |
+          FUNC_NAME="${{ steps.set-name.outputs.name }}"
+          
           # Get publishing credentials
           CREDS=$(az webapp deployment list-publishing-credentials \
-            --name ${{ env.AZURE_FUNCTIONAPP_NAME }} \
+            --name $FUNC_NAME \
             --resource-group ${{ env.RESOURCE_GROUP }} \
             --query "[publishingUserName, publishingPassword]" -o tsv)
           USER=$(echo "$CREDS" | head -1)
           PASS=$(echo "$CREDS" | tail -1)
           
-          echo "Package size:"
-          ls -lh deploy.zip
+          echo "📦 Deploying to $FUNC_NAME..."
           
-          echo "Deploying..."
           HTTP_CODE=$(curl -s -X POST \
             --user "$USER:$PASS" \
             --data-binary @deploy.zip \
@@ -75,41 +102,55 @@ jobs:
             --max-time 600 \
             -w "%{http_code}" \
             -o /tmp/deploy_response.txt \
-            "https://${{ env.AZURE_FUNCTIONAPP_NAME }}.scm.azurewebsites.net/api/zipdeploy")
+            "https://$FUNC_NAME.scm.azurewebsites.net/api/zipdeploy?isAsync=false")
           
           echo "HTTP Code: $HTTP_CODE"
-          cat /tmp/deploy_response.txt || true
           
-          if [ "$HTTP_CODE" -eq "200" ]; then
-            echo "✓ Deployment successful!"
-          elif [ "$HTTP_CODE" -eq "202" ]; then
-            echo "✓ Deployment accepted (async)"
+          if [ "$HTTP_CODE" -eq "200" ] || [ "$HTTP_CODE" -eq "202" ]; then
+            echo "✅ Deployment successful!"
           else
-            echo "⚠ Deployment response: $HTTP_CODE"
+            echo "❌ Deployment failed with code: $HTTP_CODE"
+            cat /tmp/deploy_response.txt || true
+            exit 1
           fi
 
       - name: Restart function app
         run: |
+          FUNC_NAME="${{ steps.set-name.outputs.name }}"
+          echo "🔄 Restarting function app..."
           sleep 30
-          az functionapp restart --name ${{ env.AZURE_FUNCTIONAPP_NAME }} --resource-group ${{ env.RESOURCE_GROUP }}
+          az functionapp restart --name $FUNC_NAME --resource-group ${{ env.RESOURCE_GROUP }}
           sleep 30
 
       - name: Verify deployment
         run: |
-          echo "Listing functions..."
-          az functionapp function list --name ${{ env.AZURE_FUNCTIONAPP_NAME }} --resource-group ${{ env.RESOURCE_GROUP }} -o table || echo "Loading..."
+          FUNC_NAME="${{ steps.set-name.outputs.name }}"
+          echo "🔍 Verifying deployment..."
           
+          # Test health endpoint
+          HEALTH_URL="https://$FUNC_NAME.azurewebsites.net/api/health"
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "$HEALTH_URL" || echo "000")
+          
+          if [ "$HTTP_CODE" -eq "200" ]; then
+            echo "✅ Health check passed!"
+          else
+            echo "⚠️ Health check returned: $HTTP_CODE (may still be starting)"
+          fi
+          
+          # List functions
           echo ""
-          echo "Testing health endpoint..."
-          for i in 1 2 3 4 5; do
-            RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" "https://${{ env.AZURE_FUNCTIONAPP_NAME }}.azurewebsites.net/api/health")
-            if [ "$RESPONSE" = "200" ]; then
-              echo "✓ Health check passed!"
-              curl -s "https://${{ env.AZURE_FUNCTIONAPP_NAME }}.azurewebsites.net/api/health" | head -c 200
-              exit 0
-            fi
-            echo "Attempt $i: $RESPONSE - waiting..."
-            sleep 15
-          done
-          echo "Health check did not pass yet (may still be warming up)"
+          echo "📋 Deployed functions:"
+          az functionapp function list --name $FUNC_NAME --resource-group ${{ env.RESOURCE_GROUP }} -o table || echo "Loading..."
 
+      - name: Output summary
+        run: |
+          FUNC_NAME="${{ steps.set-name.outputs.name }}"
+          echo "## Function App Deployed! 🚀" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Function App:** \`$FUNC_NAME\`" >> $GITHUB_STEP_SUMMARY
+          echo "**API URL:** https://$FUNC_NAME.azurewebsites.net/api/" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Endpoints:" >> $GITHUB_STEP_SUMMARY
+          echo "- Health: \`/api/health\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Upload: \`/api/upload\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Status: \`/api/status/{job_id}\`" >> $GITHUB_STEP_SUMMARY
