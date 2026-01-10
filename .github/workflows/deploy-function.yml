@@ -22,26 +22,14 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Install dependencies to .python_packages
+      - name: Create deployment package (code only)
         run: |
-          pip install --upgrade pip
-          pip install -r requirements.txt --target=".python_packages/lib/site-packages"
-
-      - name: Create deployment package
-        run: |
-          zip -r deploy.zip . \
-            -x "*.git*" \
-            -x "*__pycache__*" \
-            -x "*.pytest_cache*" \
-            -x "frontend/*" \
-            -x "infra/*" \
-            -x "*.md" \
-            -x "deploy.zip" \
-            -x ".github/*" \
-            -x "venv/*" \
-            -x ".venv/*" \
-            -x ".venv-1/*" \
-            -x "samples/*"
+          # Create minimal zip with just code - remote build will install packages
+          zip -r deploy.zip \
+            function_app.py \
+            host.json \
+            requirements.txt \
+            local.settings.example.json
           ls -lh deploy.zip
 
       - name: Login to Azure
@@ -49,7 +37,7 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Deploy via Kudu zipdeploy
+      - name: Deploy via Kudu zipdeploy with remote build
         run: |
           # Get credentials
           CREDS=$(az webapp deployment list-publishing-credentials \
@@ -59,19 +47,25 @@ jobs:
           USER=$(echo "$CREDS" | head -1)
           PASS=$(echo "$CREDS" | tail -1)
           
-          echo "Deploying via Kudu..."
+          echo "Deploying via Kudu with remote build..."
           curl -X POST \
             --user "$USER:$PASS" \
             --data-binary @deploy.zip \
             -H "Content-Type: application/zip" \
+            -H "SCM_DO_BUILD_DURING_DEPLOYMENT: true" \
             --fail \
-            "https://${{ env.AZURE_FUNCTIONAPP_NAME }}.scm.azurewebsites.net/api/zipdeploy"
+            --max-time 600 \
+            "https://${{ env.AZURE_FUNCTIONAPP_NAME }}.scm.azurewebsites.net/api/zipdeploy?isAsync=true"
           
-          echo "Deployment complete!"
+          echo "Deployment initiated!"
+          
+      - name: Wait for remote build
+        run: |
+          echo "Waiting for remote build to complete..."
+          sleep 120
           
       - name: Restart and verify
         run: |
-          sleep 10
           az functionapp restart --name ${{ env.AZURE_FUNCTIONAPP_NAME }} --resource-group ${{ env.RESOURCE_GROUP }}
           sleep 30
           echo "Checking functions..."
