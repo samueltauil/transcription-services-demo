@@ -15,6 +15,10 @@ param environment string = 'dev'
 var uniqueSuffix = uniqueString(resourceGroup().id)
 var resourceBaseName = '${baseName}${environment}'
 
+// Role definition IDs for RBAC
+var storageBlobDataOwnerRoleId = 'b7e6dc6d-f1e8-4753-8033-0f276bb0955b'
+var storageQueueDataContributorRoleId = '974c5e8b-45b9-4653-ba55-5f855dd0fb88'
+
 // ============================================================================
 // Storage Account - For audio files and function app
 // ============================================================================
@@ -28,10 +32,13 @@ resource storageAccount 'Microsoft.Storage/storageAccounts@2023-01-01' = {
   properties: {
     supportsHttpsTrafficOnly: true
     minimumTlsVersion: 'TLS1_2'
-    allowSharedKeyAccess: true // Required for Azure Functions deployment
+    allowSharedKeyAccess: false // Use managed identity - more secure
     encryption: {
       services: {
         blob: {
+          enabled: true
+        }
+        queue: {
           enabled: true
         }
       }
@@ -134,7 +141,7 @@ resource languageService 'Microsoft.CognitiveServices/accounts@2023-10-01-previe
   location: location
   kind: 'TextAnalytics'
   sku: {
-    name: 'F0'
+    name: 'F0' // Free tier - change to S for production
   }
   properties: {
     customSubDomainName: '${resourceBaseName}-language-${take(uniqueSuffix, 6)}'
@@ -177,6 +184,9 @@ resource functionApp 'Microsoft.Web/sites@2023-01-01' = {
   name: '${resourceBaseName}-func-${take(uniqueSuffix, 6)}'
   location: location
   kind: 'functionapp,linux'
+  identity: {
+    type: 'SystemAssigned'
+  }
   properties: {
     serverFarmId: appServicePlan.id
     siteConfig: {
@@ -187,8 +197,8 @@ resource functionApp 'Microsoft.Web/sites@2023-01-01' = {
       }
       appSettings: [
         {
-          name: 'AzureWebJobsStorage'
-          value: 'DefaultEndpointsProtocol=https;AccountName=${storageAccount.name};EndpointSuffix=${az.environment().suffixes.storage};AccountKey=${storageAccount.listKeys().keys[0].value}'
+          name: 'AzureWebJobsStorage__accountName'
+          value: storageAccount.name
         }
         {
           name: 'FUNCTIONS_EXTENSION_VERSION'
@@ -238,9 +248,58 @@ resource functionApp 'Microsoft.Web/sites@2023-01-01' = {
           name: 'STORAGE_CONTAINER_NAME'
           value: 'audio-files'
         }
+        {
+          name: 'SCM_DO_BUILD_DURING_DEPLOYMENT'
+          value: 'true'
+        }
+        {
+          name: 'ENABLE_ORYX_BUILD'
+          value: 'true'
+        }
       ]
     }
     httpsOnly: true
+  }
+}
+
+// Enable SCM basic auth for Kudu deployment
+resource functionAppScmBasicAuth 'Microsoft.Web/sites/basicPublishingCredentialsPolicies@2023-01-01' = {
+  parent: functionApp
+  name: 'scm'
+  properties: {
+    allow: true
+  }
+}
+
+// Enable FTP basic auth
+resource functionAppFtpBasicAuth 'Microsoft.Web/sites/basicPublishingCredentialsPolicies@2023-01-01' = {
+  parent: functionApp
+  name: 'ftp'
+  properties: {
+    allow: true
+  }
+}
+
+// ============================================================================
+// RBAC Role Assignments - Function App Managed Identity to Storage
+// ============================================================================
+resource storageBlobDataOwnerRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(storageAccount.id, functionApp.id, storageBlobDataOwnerRoleId)
+  scope: storageAccount
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', storageBlobDataOwnerRoleId)
+    principalId: functionApp.identity.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+resource storageQueueDataContributorRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(storageAccount.id, functionApp.id, storageQueueDataContributorRoleId)
+  scope: storageAccount
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', storageQueueDataContributorRoleId)
+    principalId: functionApp.identity.principalId
+    principalType: 'ServicePrincipal'
   }
 }
 
@@ -275,24 +334,30 @@ output speechServiceEndpoint string = speechService.properties.endpoint
 output languageServiceEndpoint string = languageService.properties.endpoint
 output cosmosAccountEndpoint string = cosmosAccount.properties.documentEndpoint
 output storageAccountName string = storageAccount.name
+output functionAppPrincipalId string = functionApp.identity.principalId
 
 // Instructions output
 output deploymentInstructions string = '''
 Deployment Complete!
 
 Next Steps:
-1. Deploy the Function App code:
-   func azure functionapp publish ${functionAppName}
+1. Wait ~5 minutes for RBAC role assignments to propagate
 
-2. Configure the Static Web App:
-   - Link to your GitHub repository, or
-   - Deploy manually using SWA CLI
+2. Deploy the Function App code using GitHub Actions:
+   - Go to Actions tab and run "Deploy Azure Functions" workflow
 
-3. Update the frontend API_BASE_URL to point to:
-   ${functionAppUrl}/api
+3. Deploy the Frontend using GitHub Actions:
+   - Go to Actions tab and run "Deploy Frontend" workflow
+   
+4. Get the Static Web App deployment token:
+   az staticwebapp secrets list --name <staticWebAppName> --query "properties.apiKey" -o tsv
 
-4. For HIPAA compliance:
-   - Enable Azure Monitor diagnostic settings
-   - Configure managed identities
-   - Set up VNet integration for production
+5. Set the following GitHub secrets:
+   - AZURE_CREDENTIALS: Service principal JSON
+   - AZURE_STATIC_WEB_APPS_API_TOKEN: Static Web App deployment token
+
+For HIPAA compliance in production:
+- Enable Azure Monitor diagnostic settings
+- Configure VNet integration
+- Enable customer-managed keys
 '''
