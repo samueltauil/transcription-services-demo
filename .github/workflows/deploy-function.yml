@@ -22,79 +22,37 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Install dependencies locally
+      - name: Install Azure Functions Core Tools
+        run: |
+          curl https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > microsoft.gpg
+          sudo mv microsoft.gpg /etc/apt/trusted.gpg.d/microsoft.gpg
+          sudo sh -c 'echo "deb [arch=amd64] https://packages.microsoft.com/repos/microsoft-ubuntu-$(lsb_release -cs)-prod $(lsb_release -cs) main" > /etc/apt/sources.list.d/dotnetdev.list'
+          sudo apt-get update
+          sudo apt-get install azure-functions-core-tools-4
+
+      - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install -r requirements.txt --target=".python_packages/lib/site-packages"
-
-      - name: Create deployment package
-        run: |
-          # Include .python_packages with dependencies
-          zip -r deployment.zip . \
-            -x "*.git*" \
-            -x "*__pycache__*" \
-            -x "*.pytest_cache*" \
-            -x "frontend/*" \
-            -x "infra/*" \
-            -x "*.md" \
-            -x "deployment.zip" \
-            -x ".github/*" \
-            -x "venv/*" \
-            -x ".venv/*"
-          
-          echo "Package size:"
-          ls -lh deployment.zip
+          pip install -r requirements.txt
 
       - name: Login to Azure
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Deploy using ARM API
+      - name: Deploy using func CLI
         run: |
-          # Get access token for ARM
-          TOKEN=$(az account get-access-token --query accessToken -o tsv)
-          SUBSCRIPTION_ID=$(az account show --query id -o tsv)
+          # Publish using func azure functionapp publish
+          func azure functionapp publish ${{ env.AZURE_FUNCTIONAPP_NAME }} --python
           
-          # Upload to OneDeploy API using Bearer token (RBAC-based)
-          HTTP_CODE=$(curl -s -o response.txt -w "%{http_code}" \
-            -X POST \
-            -H "Authorization: Bearer $TOKEN" \
-            -H "Content-Type: application/zip" \
-            --data-binary @deployment.zip \
-            "https://${{ env.AZURE_FUNCTIONAPP_NAME }}.scm.azurewebsites.net/api/zipdeploy?isAsync=false")
-          
-          echo "HTTP Response Code: $HTTP_CODE"
-          
-          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
-            echo "Deployment successful!"
-          else
-            cat response.txt
-            echo ""
-            echo "Trying alternative method..."
-            
-            # Alternative: Use az rest to deploy via ARM
-            az functionapp deploy \
-              --resource-group ${{ env.RESOURCE_GROUP }} \
-              --name ${{ env.AZURE_FUNCTIONAPP_NAME }} \
-              --src-path deployment.zip \
-              --type zip \
-              --async false || echo "Fallback also failed, checking status..."
-          fi
-          
-      - name: Wait and restart
+      - name: Restart and verify
         run: |
+          sleep 10
+          az functionapp restart --name ${{ env.AZURE_FUNCTIONAPP_NAME }} --resource-group ${{ env.RESOURCE_GROUP }}
           sleep 30
-          az functionapp restart \
-            --name ${{ env.AZURE_FUNCTIONAPP_NAME }} \
-            --resource-group ${{ env.RESOURCE_GROUP }}
-          
-      - name: Verify functions loaded
-        run: |
-          sleep 30
-          echo "Checking deployed functions..."
-          az functionapp function list \
-            --name ${{ env.AZURE_FUNCTIONAPP_NAME }} \
-            --resource-group ${{ env.RESOURCE_GROUP }} \
-            -o table || echo "Functions may still be loading..."
+          echo "Checking functions..."
+          az functionapp function list --name ${{ env.AZURE_FUNCTIONAPP_NAME }} --resource-group ${{ env.RESOURCE_GROUP }} -o table || echo "Still loading..."
+          echo ""
+          echo "Testing health endpoint..."
+          curl -s "https://${{ env.AZURE_FUNCTIONAPP_NAME }}.azurewebsites.net/api/health" || echo "Health check pending..."
 
