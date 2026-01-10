@@ -150,17 +150,20 @@ resource languageService 'Microsoft.CognitiveServices/accounts@2023-10-01-previe
 }
 
 // ============================================================================
-// App Service Plan - For Azure Functions
+// App Service Plan - For Azure Functions (Elastic Premium for managed identity storage)
 // ============================================================================
 resource appServicePlan 'Microsoft.Web/serverfarms@2023-01-01' = {
   name: '${resourceBaseName}-plan'
   location: location
   sku: {
-    name: 'Y1'
-    tier: 'Dynamic'
+    name: 'EP1'
+    tier: 'ElasticPremium'
+    family: 'EP'
   }
+  kind: 'elastic'
   properties: {
     reserved: true // Linux
+    maximumElasticWorkerCount: 20
   }
 }
 

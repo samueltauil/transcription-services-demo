@@ -37,6 +37,7 @@ class AzureConfig:
     cosmos_container_name: str
     storage_connection_string: str
     storage_container_name: str
+    storage_account_name: str  # For managed identity
     
     @classmethod
     def from_environment(cls) -> "AzureConfig":
@@ -50,13 +51,16 @@ class AzureConfig:
             cosmos_container_name=os.environ.get("COSMOS_CONTAINER_NAME", "transcriptions"),
             storage_connection_string=os.environ.get("STORAGE_CONNECTION_STRING", ""),
             storage_container_name=os.environ.get("STORAGE_CONTAINER_NAME", "audio-files"),
+            storage_account_name=os.environ.get("STORAGE_ACCOUNT_NAME", os.environ.get("AzureWebJobsStorage__accountName", "")),
         )
     
     def validate(self) -> bool:
+        # Either connection string or account name (for managed identity)
+        has_storage = bool(self.storage_connection_string) or bool(self.storage_account_name)
         return all([
             self.speech_key, self.speech_region, self.language_key,
             self.language_endpoint, self.cosmos_connection_string,
-            self.storage_connection_string,
+            has_storage,
         ])
 
 
@@ -120,9 +124,18 @@ def get_cosmos_client(config: AzureConfig):
 
 
 def get_blob_client(config: AzureConfig, blob_name: str):
-    """Get Blob Storage client"""
+    """Get Blob Storage client - supports both connection string and managed identity"""
     from azure.storage.blob import BlobServiceClient
-    service_client = BlobServiceClient.from_connection_string(config.storage_connection_string)
+    
+    if config.storage_connection_string:
+        # Use connection string if available
+        service_client = BlobServiceClient.from_connection_string(config.storage_connection_string)
+    else:
+        # Use managed identity with account name
+        from azure.identity import DefaultAzureCredential
+        account_url = f"https://{config.storage_account_name}.blob.core.windows.net"
+        service_client = BlobServiceClient(account_url, credential=DefaultAzureCredential())
+    
     container_client = service_client.get_container_client(config.storage_container_name)
     try:
         container_client.create_container()
