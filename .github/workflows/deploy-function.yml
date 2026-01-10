@@ -42,8 +42,8 @@ jobs:
 
       - name: Deploy using func CLI
         run: |
-          # Publish using func azure functionapp publish
-          func azure functionapp publish ${{ env.AZURE_FUNCTIONAPP_NAME }} --python
+          # Publish using func azure functionapp publish with local build
+          func azure functionapp publish ${{ env.AZURE_FUNCTIONAPP_NAME }} --python --build local
           
       - name: Restart and verify
         run: |
