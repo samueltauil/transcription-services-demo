@@ -792,9 +792,9 @@ def get_openai_token() -> str:
 
 def generate_clinical_summary(job: TranscriptionJob, config: AzureConfig) -> dict:
     """
-    Generate an AI-powered clinical summary using Azure OpenAI GPT-4o-mini.
-    Analyzes transcription, medical entities, relations, and assertions to produce
-    a comprehensive clinical narrative.
+    Generate an AI-powered clinical research summary using Azure OpenAI GPT-4o-mini.
+    Analyzes transcription, medical entities, relations, assertions, and FHIR output
+    to produce a comprehensive summary with UMLS codes and confidence scores.
     
     Returns: dict with summary sections, token usage, and metadata
     """
@@ -805,103 +805,121 @@ def generate_clinical_summary(job: TranscriptionJob, config: AzureConfig) -> dic
     transcription_text = job.transcription_text or ""
     medical_entities = job.medical_entities or {}
     
-    # Extract entities by category for the prompt
+    # Extract entities with full details for the prompt
     entities = medical_entities.get("entities", [])
     relations = medical_entities.get("relations", [])
     
-    # Group entities by category
-    entities_by_category = {}
-    assertion_summary = {"negated": [], "hypothetical": [], "conditional": [], "other_subject": []}
-    
+    # Build detailed entity list with UMLS codes, confidence scores, and assertions
+    entities_detailed = []
     for entity in entities:
-        category = entity.get("category", "Unknown")
-        if category not in entities_by_category:
-            entities_by_category[category] = []
-        entities_by_category[category].append({
+        entity_data = {
             "text": entity.get("text"),
-            "confidence": entity.get("confidence_score", 0),
-            "links": entity.get("links", [])
-        })
+            "category": entity.get("category"),
+            "subcategory": entity.get("subcategory"),
+            "confidence_score": entity.get("confidence_score", 0),
+            "offset": entity.get("offset", 0),
+            "length": entity.get("length", 0)
+        }
         
-        # Track assertions
-        assertion = entity.get("assertion", {})
+        # Add UMLS/ontology links
+        links = entity.get("links") or []
+        if links:
+            entity_data["umls_codes"] = [{"source": l.get("dataSource"), "code": l.get("id")} for l in links]
+        
+        # Add assertion information
+        assertion = entity.get("assertion")
         if assertion:
-            certainty = assertion.get("certainty", "")
-            conditionality = assertion.get("conditionality", "")
-            association = assertion.get("association", "")
-            
-            if certainty in ["negative", "negativePossible"]:
-                assertion_summary["negated"].append(entity.get("text"))
-            if conditionality == "hypothetical":
-                assertion_summary["hypothetical"].append(entity.get("text"))
-            if conditionality == "conditional":
-                assertion_summary["conditional"].append(entity.get("text"))
-            if association == "other":
-                assertion_summary["other_subject"].append(entity.get("text"))
+            entity_data["assertion"] = {
+                "certainty": assertion.get("certainty"),
+                "conditionality": assertion.get("conditionality"),
+                "association": assertion.get("association")
+            }
+        
+        entities_detailed.append(entity_data)
     
-    # Format entities for prompt
-    entities_text = ""
-    for category, items in entities_by_category.items():
-        unique_items = list(set(item["text"] for item in items))
-        entities_text += f"\n{category}: {', '.join(unique_items[:15])}"  # Limit to avoid token overflow
+    # Build detailed relations list
+    relations_detailed = []
+    for rel in relations:
+        rel_data = {
+            "relationType": rel.get("relationType"),
+            "confidenceScore": rel.get("confidenceScore", 0),
+            "entities": []
+        }
+        for e in rel.get("entities", []):
+            rel_data["entities"].append({
+                "text": e.get("text"),
+                "role": e.get("role"),
+                "category": e.get("category")
+            })
+        relations_detailed.append(rel_data)
     
-    # Format relations for prompt
-    relations_text = ""
-    for rel in relations[:20]:  # Limit relations
-        entities_in_rel = [e.get("text", "") for e in rel.get("entities", [])]
-        rel_type = rel.get("relationType", "")
-        if entities_in_rel and rel_type:
-            relations_text += f"\n- {rel_type}: {' → '.join(entities_in_rel)}"
-    
-    # Format assertions for prompt
-    assertions_text = ""
-    if assertion_summary["negated"]:
-        assertions_text += f"\nNegated/Absent: {', '.join(assertion_summary['negated'][:10])}"
-    if assertion_summary["hypothetical"]:
-        assertions_text += f"\nHypothetical: {', '.join(assertion_summary['hypothetical'][:10])}"
-    if assertion_summary["conditional"]:
-        assertions_text += f"\nConditional: {', '.join(assertion_summary['conditional'][:10])}"
-    if assertion_summary["other_subject"]:
-        assertions_text += f"\nOther Subject (family/social history): {', '.join(assertion_summary['other_subject'][:10])}"
-    
-    # Build the prompt
-    system_prompt = """You are a clinical documentation specialist. Analyze the provided healthcare transcription and medical entity data to generate a structured clinical summary.
+    # Build the optimized clinical research prompt
+    system_prompt = """You are a clinical documentation specialist generating summaries for clinical researchers and medical professionals.
 
-Your summary should be:
-- Professional and clinically appropriate
-- Organized into clear sections
-- Based ONLY on the data provided - do not add information not present
-- Written in third person (e.g., "The patient reports..." not "You report...")
-- Highlighting key clinical findings and their relationships
+Your task is to analyze the provided clinical data from Azure Text Analytics for Health and generate a detailed, structured summary that facilitates rapid understanding of key clinical insights for research and analysis.
 
-Important: Pay attention to assertion markers - negated conditions mean they are ABSENT, hypothetical means they are being considered but not confirmed."""
+Guidelines:
+- Use clear, professional clinical terminology
+- Include UMLS codes when available
+- Include confidence scores for key findings
+- Prioritize clinically relevant data with confidence ≥ 0.90, but include lower-confidence data if clinically significant
+- Clearly note negations, hypothetical conditions, and uncertain assertions
+- Present data in consistent, precise clinical language
+- Use bullet points and tables for readability
+- Base your summary ONLY on the data provided - do not add information not present"""
 
-    user_prompt = f"""Please analyze this healthcare encounter and provide a clinical summary.
+    # Create a structured JSON input for the model
+    clinical_data = {
+        "transcription": transcription_text[:4000],
+        "entities": entities_detailed[:50],
+        "relations": relations_detailed[:30],
+        "summary_stats": medical_entities.get("summary", {})
+    }
 
-## TRANSCRIPTION:
-{transcription_text[:3000]}
+    user_prompt = f"""Analyze the following clinical data from Azure Text Analytics for Health and generate a comprehensive clinical research summary.
 
-## IDENTIFIED MEDICAL ENTITIES:
-{entities_text}
-
-## CLINICAL RELATIONSHIPS:
-{relations_text if relations_text else "No significant relationships identified."}
-
-## ASSERTION MARKERS:
-{assertions_text if assertions_text else "No special assertions noted."}
+## INPUT CLINICAL DATA:
+```json
+{json.dumps(clinical_data, indent=2)}
+```
 
 ---
 
-Please provide a structured clinical summary with the following sections:
-1. **Clinical Overview**: Brief 2-3 sentence summary of the encounter
-2. **Chief Complaint/Reason for Visit**: Primary concern
-3. **Key Clinical Findings**: Important diagnoses, symptoms, and conditions (noting what is confirmed vs. negated)
-4. **Medications Discussed**: Any medications mentioned with context
-5. **Treatment Plan**: Any treatments, procedures, or recommendations discussed
-6. **Follow-up Considerations**: Suggested next steps based on the encounter
-7. **Notable Assertions**: Highlight any negated conditions, hypothetical considerations, or family/social history items
+Generate a structured clinical summary with the following sections:
 
-Keep the summary concise but comprehensive. Each section should be 1-3 sentences."""
+### 1. FINDINGS SUMMARY TABLE
+Present a categorized table/list including for each significant finding:
+- **Name/Term**
+- **UMLS Code(s)** (if available)
+- **Confidence Score**
+- **Relevant Qualifiers** (dosage, frequency, course, etc.)
+
+Organize by categories:
+- Symptoms and Signs
+- Anatomical Locations  
+- Diagnoses
+- Medications
+- Tests and Results
+- Treatments and Interventions
+
+### 2. CLINICAL RELATIONSHIPS AND TIMELINE
+- Summarize important clinical relationships (symptom-location, medication-dosage, condition-course)
+- Highlight temporal information (onset, duration, frequency, course of illness/treatment)
+- Note any progression or changes over time
+
+### 3. ASSERTIONS AND CONFIDENCE ANALYSIS
+- **Negated Findings**: Conditions/symptoms explicitly ruled out or absent
+- **Hypothetical/Conditional**: Conditions being considered but not confirmed
+- **Uncertain Diagnoses**: Findings with lower confidence requiring follow-up
+- **Family/Social History**: Findings attributed to persons other than the patient
+
+### 4. KEY CLINICAL INSIGHTS
+- Primary diagnoses or concerns
+- Critical medications and their context
+- Important clinical correlations
+- Recommended considerations for follow-up
+
+Use bullet points, clear headings, and professional clinical language throughout."""
 
     # Call Azure OpenAI
     url = f"{config.openai_endpoint.rstrip('/')}/openai/deployments/{config.openai_deployment}/chat/completions?api-version=2024-02-01"
@@ -922,13 +940,13 @@ Keep the summary concise but comprehensive. Each section should be 1-3 sentences
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
         ],
-        "temperature": 0.3,  # Lower temperature for more consistent clinical output
-        "max_tokens": 1500,
+        "temperature": 0.2,  # Lower temperature for consistent clinical output
+        "max_tokens": 2500,  # Increased for detailed research summary
         "top_p": 0.95
     }
     
     try:
-        response = requests.post(url, headers=headers, json=payload, timeout=60)
+        response = requests.post(url, headers=headers, json=payload, timeout=90)  # Increased timeout
         
         if response.status_code == 200:
             result = response.json()
