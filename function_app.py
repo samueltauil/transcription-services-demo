@@ -223,8 +223,8 @@ def generate_fhir_bundle(medical_entities: dict) -> dict:
     for idx, entity in enumerate(entities, 1):
         category = entity.get("category", "")
         fhir_type = category_to_fhir.get(category, "Observation")
-        assertion = entity.get("assertion", {})
-        links = entity.get("links", [])
+        assertion = entity.get("assertion") or {}
+        links = entity.get("links") or []
         
         # Build coding array from entity links
         coding = []
