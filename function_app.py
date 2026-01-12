@@ -40,6 +40,8 @@ class AzureConfig:
     storage_connection_string: str
     storage_container_name: str
     storage_account_name: str  # For managed identity
+    openai_endpoint: str  # Azure OpenAI endpoint for clinical summaries
+    openai_deployment: str  # Model deployment name (e.g., gpt-4o-mini)
     
     @classmethod
     def from_environment(cls) -> "AzureConfig":
@@ -56,6 +58,8 @@ class AzureConfig:
             storage_connection_string=os.environ.get("STORAGE_CONNECTION_STRING", ""),
             storage_container_name=os.environ.get("STORAGE_CONTAINER_NAME", "audio-files"),
             storage_account_name=os.environ.get("STORAGE_ACCOUNT_NAME", os.environ.get("AzureWebJobsStorage__accountName", "")),
+            openai_endpoint=os.environ.get("AZURE_OPENAI_ENDPOINT", ""),
+            openai_deployment=os.environ.get("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini"),
         )
     
     def validate(self) -> bool:
@@ -96,6 +100,7 @@ class TranscriptionJob:
     medical_entities: Optional[dict] = None
     error_message: Optional[str] = None
     processing_time_seconds: Optional[float] = None
+    llm_summary: Optional[dict] = None  # AI-generated clinical summary with caching
     
     def to_dict(self) -> dict:
         return {
@@ -104,6 +109,7 @@ class TranscriptionJob:
             "blob_url": self.blob_url, "transcription_text": self.transcription_text,
             "medical_entities": self.medical_entities,
             "error_message": self.error_message, "processing_time_seconds": self.processing_time_seconds,
+            "llm_summary": self.llm_summary,
         }
     
     @classmethod
@@ -115,6 +121,7 @@ class TranscriptionJob:
             transcription_text=data.get("transcription_text"),
             medical_entities=data.get("medical_entities"),
             error_message=data.get("error_message"), processing_time_seconds=data.get("processing_time_seconds"),
+            llm_summary=data.get("llm_summary"),
         )
 
 
@@ -769,6 +776,200 @@ def analyze_health_text_rest(text: str, config: AzureConfig) -> dict:
 
 
 # ============================================================================
+# Azure OpenAI - Clinical Summary Generation
+# ============================================================================
+
+def get_openai_token() -> str:
+    """Get access token for Azure OpenAI using managed identity"""
+    try:
+        from azure.identity import DefaultAzureCredential
+        credential = DefaultAzureCredential()
+        token = credential.get_token("https://cognitiveservices.azure.com/.default")
+        return token.token
+    except Exception as e:
+        logger.error(f"Failed to get OpenAI token via managed identity: {e}")
+        raise
+
+def generate_clinical_summary(job: TranscriptionJob, config: AzureConfig) -> dict:
+    """
+    Generate an AI-powered clinical summary using Azure OpenAI GPT-4o-mini.
+    Analyzes transcription, medical entities, relations, and assertions to produce
+    a comprehensive clinical narrative.
+    
+    Returns: dict with summary sections, token usage, and metadata
+    """
+    if not config.openai_endpoint or not config.openai_deployment:
+        return {"error": "Azure OpenAI not configured", "generated_at": None}
+    
+    # Build context from transcription data
+    transcription_text = job.transcription_text or ""
+    medical_entities = job.medical_entities or {}
+    
+    # Extract entities by category for the prompt
+    entities = medical_entities.get("entities", [])
+    relations = medical_entities.get("relations", [])
+    
+    # Group entities by category
+    entities_by_category = {}
+    assertion_summary = {"negated": [], "hypothetical": [], "conditional": [], "other_subject": []}
+    
+    for entity in entities:
+        category = entity.get("category", "Unknown")
+        if category not in entities_by_category:
+            entities_by_category[category] = []
+        entities_by_category[category].append({
+            "text": entity.get("text"),
+            "confidence": entity.get("confidence_score", 0),
+            "links": entity.get("links", [])
+        })
+        
+        # Track assertions
+        assertion = entity.get("assertion", {})
+        if assertion:
+            certainty = assertion.get("certainty", "")
+            conditionality = assertion.get("conditionality", "")
+            association = assertion.get("association", "")
+            
+            if certainty in ["negative", "negativePossible"]:
+                assertion_summary["negated"].append(entity.get("text"))
+            if conditionality == "hypothetical":
+                assertion_summary["hypothetical"].append(entity.get("text"))
+            if conditionality == "conditional":
+                assertion_summary["conditional"].append(entity.get("text"))
+            if association == "other":
+                assertion_summary["other_subject"].append(entity.get("text"))
+    
+    # Format entities for prompt
+    entities_text = ""
+    for category, items in entities_by_category.items():
+        unique_items = list(set(item["text"] for item in items))
+        entities_text += f"\n{category}: {', '.join(unique_items[:15])}"  # Limit to avoid token overflow
+    
+    # Format relations for prompt
+    relations_text = ""
+    for rel in relations[:20]:  # Limit relations
+        entities_in_rel = [e.get("text", "") for e in rel.get("entities", [])]
+        rel_type = rel.get("relationType", "")
+        if entities_in_rel and rel_type:
+            relations_text += f"\n- {rel_type}: {' → '.join(entities_in_rel)}"
+    
+    # Format assertions for prompt
+    assertions_text = ""
+    if assertion_summary["negated"]:
+        assertions_text += f"\nNegated/Absent: {', '.join(assertion_summary['negated'][:10])}"
+    if assertion_summary["hypothetical"]:
+        assertions_text += f"\nHypothetical: {', '.join(assertion_summary['hypothetical'][:10])}"
+    if assertion_summary["conditional"]:
+        assertions_text += f"\nConditional: {', '.join(assertion_summary['conditional'][:10])}"
+    if assertion_summary["other_subject"]:
+        assertions_text += f"\nOther Subject (family/social history): {', '.join(assertion_summary['other_subject'][:10])}"
+    
+    # Build the prompt
+    system_prompt = """You are a clinical documentation specialist. Analyze the provided healthcare transcription and medical entity data to generate a structured clinical summary.
+
+Your summary should be:
+- Professional and clinically appropriate
+- Organized into clear sections
+- Based ONLY on the data provided - do not add information not present
+- Written in third person (e.g., "The patient reports..." not "You report...")
+- Highlighting key clinical findings and their relationships
+
+Important: Pay attention to assertion markers - negated conditions mean they are ABSENT, hypothetical means they are being considered but not confirmed."""
+
+    user_prompt = f"""Please analyze this healthcare encounter and provide a clinical summary.
+
+## TRANSCRIPTION:
+{transcription_text[:3000]}
+
+## IDENTIFIED MEDICAL ENTITIES:
+{entities_text}
+
+## CLINICAL RELATIONSHIPS:
+{relations_text if relations_text else "No significant relationships identified."}
+
+## ASSERTION MARKERS:
+{assertions_text if assertions_text else "No special assertions noted."}
+
+---
+
+Please provide a structured clinical summary with the following sections:
+1. **Clinical Overview**: Brief 2-3 sentence summary of the encounter
+2. **Chief Complaint/Reason for Visit**: Primary concern
+3. **Key Clinical Findings**: Important diagnoses, symptoms, and conditions (noting what is confirmed vs. negated)
+4. **Medications Discussed**: Any medications mentioned with context
+5. **Treatment Plan**: Any treatments, procedures, or recommendations discussed
+6. **Follow-up Considerations**: Suggested next steps based on the encounter
+7. **Notable Assertions**: Highlight any negated conditions, hypothetical considerations, or family/social history items
+
+Keep the summary concise but comprehensive. Each section should be 1-3 sentences."""
+
+    # Call Azure OpenAI
+    url = f"{config.openai_endpoint.rstrip('/')}/openai/deployments/{config.openai_deployment}/chat/completions?api-version=2024-02-01"
+    
+    try:
+        token = get_openai_token()
+    except Exception as e:
+        logger.error(f"Failed to authenticate for Azure OpenAI: {e}")
+        return {"error": f"Authentication failed: {str(e)}", "generated_at": None}
+    
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json"
+    }
+    
+    payload = {
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ],
+        "temperature": 0.3,  # Lower temperature for more consistent clinical output
+        "max_tokens": 1500,
+        "top_p": 0.95
+    }
+    
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=60)
+        
+        if response.status_code == 200:
+            result = response.json()
+            
+            # Extract summary and token usage
+            summary_text = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+            usage = result.get("usage", {})
+            
+            # Calculate estimated cost (GPT-4o-mini pricing: $0.15/1M input, $0.60/1M output)
+            prompt_tokens = usage.get("prompt_tokens", 0)
+            completion_tokens = usage.get("completion_tokens", 0)
+            estimated_cost = (prompt_tokens * 0.00000015) + (completion_tokens * 0.0000006)
+            
+            return {
+                "summary_text": summary_text,
+                "generated_at": datetime.utcnow().isoformat() + "Z",
+                "model": config.openai_deployment,
+                "token_usage": {
+                    "prompt_tokens": prompt_tokens,
+                    "completion_tokens": completion_tokens,
+                    "total_tokens": usage.get("total_tokens", 0),
+                    "estimated_cost_usd": round(estimated_cost, 6)
+                },
+                "input_stats": {
+                    "transcription_chars": len(transcription_text),
+                    "entity_count": len(entities),
+                    "relation_count": len(relations)
+                }
+            }
+        else:
+            logger.error(f"Azure OpenAI error: {response.status_code} - {response.text}")
+            return {"error": f"OpenAI API error: {response.status_code}", "generated_at": None}
+            
+    except requests.exceptions.Timeout:
+        return {"error": "Request timeout - summary generation took too long", "generated_at": None}
+    except Exception as e:
+        logger.error(f"Error generating summary: {e}")
+        return {"error": f"Summary generation failed: {str(e)}", "generated_at": None}
+
+
+# ============================================================================
 # HTTP Functions
 # ============================================================================
 
@@ -1030,6 +1231,119 @@ def get_results(req: func.HttpRequest) -> func.HttpResponse:
         return func.HttpResponse(json.dumps(result, indent=2), status_code=200, mimetype="application/json")
     except Exception as e:
         logger.error(f"Results endpoint error for job {job_id}: {e}")
+        return func.HttpResponse(json.dumps({"error": f"Server error: {str(e)}"}), status_code=500, mimetype="application/json")
+
+
+@app.route(route="summary/{job_id}", methods=["GET"])
+def get_summary(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Get AI-generated clinical summary for a transcription job.
+    
+    Query parameters:
+    - regenerate=true: Force regeneration of cached summary (respects 30-second cooldown)
+    
+    Returns cached summary if available, or generates new one on-demand.
+    """
+    job_id = req.route_params.get('job_id')
+    if not job_id:
+        return func.HttpResponse(json.dumps({"error": "Job ID required"}), status_code=400, mimetype="application/json")
+    
+    regenerate = req.params.get('regenerate', '').lower() == 'true'
+    
+    try:
+        config = AzureConfig.from_environment()
+        
+        # Check if Azure OpenAI is configured
+        if not config.openai_endpoint:
+            return func.HttpResponse(
+                json.dumps({"error": "AI Summary feature not available - Azure OpenAI not configured"}),
+                status_code=503, mimetype="application/json"
+            )
+        
+        container = get_cosmos_client(config)
+        
+        # Get job from Cosmos DB
+        try:
+            job_data = container.read_item(item=job_id, partition_key=job_id)
+        except Exception as cosmos_err:
+            logger.error(f"Cosmos DB read error for job {job_id}: {cosmos_err}")
+            return func.HttpResponse(json.dumps({"error": f"Job not found: {job_id}"}), status_code=404, mimetype="application/json")
+        
+        job = TranscriptionJob.from_dict(job_data)
+        
+        # Check if job is completed
+        if job.status != JobStatus.COMPLETED:
+            return func.HttpResponse(
+                json.dumps({"error": f"Job not ready for summary - status: {job.status}"}),
+                status_code=400, mimetype="application/json"
+            )
+        
+        # Check for cached summary (unless regenerate requested)
+        if job.llm_summary and not regenerate:
+            # Return cached summary
+            return func.HttpResponse(
+                json.dumps({
+                    "job_id": job.id,
+                    "cached": True,
+                    **job.llm_summary
+                }),
+                status_code=200, mimetype="application/json"
+            )
+        
+        # Check regeneration cooldown (30 seconds)
+        if regenerate and job.llm_summary:
+            generated_at = job.llm_summary.get("generated_at")
+            if generated_at:
+                try:
+                    last_gen_time = datetime.fromisoformat(generated_at.replace("Z", "+00:00"))
+                    now = datetime.utcnow().replace(tzinfo=last_gen_time.tzinfo)
+                    cooldown_remaining = 30 - (now - last_gen_time).total_seconds()
+                    if cooldown_remaining > 0:
+                        return func.HttpResponse(
+                            json.dumps({
+                                "error": "Regeneration cooldown active",
+                                "cooldown_remaining_seconds": int(cooldown_remaining),
+                                "cached": True,
+                                **job.llm_summary
+                            }),
+                            status_code=429, mimetype="application/json"
+                        )
+                except Exception as e:
+                    logger.warning(f"Could not parse generated_at timestamp: {e}")
+        
+        # Generate new summary
+        logger.info(f"Generating AI summary for job {job_id} (regenerate={regenerate})")
+        summary_result = generate_clinical_summary(job, config)
+        
+        # Check for generation errors
+        if "error" in summary_result and summary_result.get("generated_at") is None:
+            return func.HttpResponse(
+                json.dumps({"error": summary_result["error"]}),
+                status_code=500, mimetype="application/json"
+            )
+        
+        # Save summary to Cosmos DB (cache it)
+        try:
+            job.llm_summary = summary_result
+            job.updated_at = datetime.utcnow().isoformat() + "Z"
+            container.upsert_item(job.to_dict())
+            logger.info(f"Cached AI summary for job {job_id}")
+        except Exception as save_err:
+            logger.error(f"Failed to cache summary for job {job_id}: {save_err}")
+            # Continue - return the summary even if caching failed
+        
+        return func.HttpResponse(
+            json.dumps({
+                "job_id": job.id,
+                "cached": False,
+                **summary_result
+            }),
+            status_code=200, mimetype="application/json"
+        )
+        
+    except Exception as e:
+        import traceback
+        logger.error(f"Summary endpoint error for job {job_id}: {e} - {traceback.format_exc()}")
         return func.HttpResponse(json.dumps({"error": f"Server error: {str(e)}"}), status_code=500, mimetype="application/json")
 
 

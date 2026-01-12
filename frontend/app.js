@@ -197,6 +197,7 @@ async function uploadAndProcess() {
         
         const uploadData = await uploadResponse.json();
         currentJobId = uploadData.job_id;
+        summaryLoaded = false; // Reset summary state for new job
         
         updateStatus('upload', 'completed');
         updateStatus('transcribe', 'active');
@@ -950,6 +951,225 @@ function downloadJson(data, filename) {
     URL.revokeObjectURL(url);
 }
 
+// ============================================================================
+// AI Summary Functions
+// ============================================================================
+
+// Summary state
+let summaryLoaded = false;
+let regenerateCooldownTimer = null;
+let cooldownRemaining = 0;
+
+/**
+ * Load AI-generated clinical summary
+ * @param {boolean} regenerate - Force regeneration of cached summary
+ */
+async function loadSummary(regenerate = false) {
+    if (!currentJobId) {
+        console.warn('No job ID available for summary');
+        return;
+    }
+    
+    const loadingEl = document.getElementById('summaryLoading');
+    const contentEl = document.getElementById('summaryContent');
+    const errorEl = document.getElementById('summaryError');
+    const footerEl = document.getElementById('summaryFooter');
+    const regenerateBtn = document.getElementById('regenerateSummary');
+    
+    // Show loading state
+    loadingEl.style.display = 'flex';
+    contentEl.innerHTML = '';
+    errorEl.style.display = 'none';
+    
+    // Disable regenerate button during loading
+    if (regenerateBtn) {
+        regenerateBtn.disabled = true;
+    }
+    
+    try {
+        const url = regenerate 
+            ? `${API_BASE_URL}/summary/${currentJobId}?regenerate=true`
+            : `${API_BASE_URL}/summary/${currentJobId}`;
+            
+        const response = await fetch(url);
+        const data = await response.json();
+        
+        // Hide loading
+        loadingEl.style.display = 'none';
+        
+        if (!response.ok) {
+            // Handle cooldown error
+            if (response.status === 429 && data.cooldown_remaining_seconds) {
+                startCooldownTimer(data.cooldown_remaining_seconds);
+                // Show cached summary if available
+                if (data.summary_text) {
+                    displaySummary(data);
+                    footerEl.style.display = 'flex';
+                }
+                return;
+            }
+            
+            throw new Error(data.error || `HTTP ${response.status}`);
+        }
+        
+        // Display the summary
+        displaySummary(data);
+        summaryLoaded = true;
+        
+        // Show footer with metadata
+        footerEl.style.display = 'flex';
+        
+        // Enable regenerate button
+        if (regenerateBtn) {
+            regenerateBtn.disabled = false;
+        }
+        
+    } catch (error) {
+        console.error('Failed to load summary:', error);
+        loadingEl.style.display = 'none';
+        errorEl.style.display = 'flex';
+        document.getElementById('summaryErrorText').textContent = error.message;
+        footerEl.style.display = 'none';
+        
+        // Enable regenerate button even on error
+        if (regenerateBtn) {
+            regenerateBtn.disabled = false;
+        }
+    }
+}
+
+/**
+ * Display the AI summary content
+ */
+function displaySummary(data) {
+    const contentEl = document.getElementById('summaryContent');
+    const errorEl = document.getElementById('summaryError');
+    
+    errorEl.style.display = 'none';
+    
+    if (!data.summary_text) {
+        contentEl.innerHTML = '<p class="placeholder">No summary available. Click "Regenerate" to generate one.</p>';
+        return;
+    }
+    
+    // Parse and format the markdown-style summary
+    const formattedSummary = formatSummaryText(data.summary_text);
+    contentEl.innerHTML = formattedSummary;
+    
+    // Update metadata
+    const cachedBadge = document.getElementById('cachedBadge');
+    if (data.cached) {
+        cachedBadge.style.display = 'inline-flex';
+    } else {
+        cachedBadge.style.display = 'none';
+    }
+    
+    // Update generated timestamp
+    if (data.generated_at) {
+        const date = new Date(data.generated_at);
+        document.getElementById('generatedAt').textContent = `Generated: ${date.toLocaleString()}`;
+    }
+    
+    // Update model info
+    if (data.model) {
+        document.getElementById('summaryModel').textContent = `Model: ${data.model}`;
+    }
+    
+    // Update token usage
+    if (data.token_usage) {
+        document.getElementById('promptTokens').textContent = `Prompt: ${data.token_usage.prompt_tokens?.toLocaleString() || '-'}`;
+        document.getElementById('completionTokens').textContent = `Completion: ${data.token_usage.completion_tokens?.toLocaleString() || '-'}`;
+        document.getElementById('totalTokens').textContent = `Total: ${data.token_usage.total_tokens?.toLocaleString() || '-'}`;
+        
+        if (data.token_usage.estimated_cost_usd !== undefined) {
+            const cost = data.token_usage.estimated_cost_usd;
+            document.getElementById('estimatedCost').textContent = `Est. Cost: $${cost < 0.01 ? cost.toFixed(6) : cost.toFixed(4)}`;
+        }
+    }
+}
+
+/**
+ * Format the summary text with proper HTML structure
+ */
+function formatSummaryText(text) {
+    // Convert markdown-style headers to HTML
+    let html = text
+        // Bold headers (e.g., **Clinical Overview**:)
+        .replace(/\*\*([^*]+)\*\*:/g, '</div><div class="summary-section"><h4 class="section-title">$1</h4><div class="section-content">')
+        // Handle ** bold ** without colon
+        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+        // Convert line breaks
+        .replace(/\n\n/g, '</p><p>')
+        .replace(/\n/g, '<br>');
+    
+    // Wrap in container and clean up
+    html = '<div class="summary-section">' + html + '</div></div>';
+    
+    // Clean up empty divs at start
+    html = html.replace(/^<\/div>/, '').replace(/<div class="summary-section"><\/div>/g, '');
+    
+    return `<div class="summary-sections">${html}</div>`;
+}
+
+/**
+ * Start the regenerate cooldown timer
+ */
+function startCooldownTimer(seconds) {
+    const regenerateBtn = document.getElementById('regenerateSummary');
+    const btnText = regenerateBtn?.querySelector('.btn-text');
+    const cooldownText = regenerateBtn?.querySelector('.cooldown-text');
+    const timerSpan = document.getElementById('cooldownTimer');
+    
+    if (!regenerateBtn) return;
+    
+    cooldownRemaining = Math.ceil(seconds);
+    regenerateBtn.disabled = true;
+    regenerateBtn.classList.add('cooldown');
+    
+    if (btnText) btnText.style.display = 'none';
+    if (cooldownText) cooldownText.style.display = 'inline';
+    
+    // Clear any existing timer
+    if (regenerateCooldownTimer) {
+        clearInterval(regenerateCooldownTimer);
+    }
+    
+    // Update timer display
+    if (timerSpan) timerSpan.textContent = cooldownRemaining;
+    
+    regenerateCooldownTimer = setInterval(() => {
+        cooldownRemaining--;
+        if (timerSpan) timerSpan.textContent = cooldownRemaining;
+        
+        if (cooldownRemaining <= 0) {
+            clearInterval(regenerateCooldownTimer);
+            regenerateCooldownTimer = null;
+            regenerateBtn.disabled = false;
+            regenerateBtn.classList.remove('cooldown');
+            if (btnText) btnText.style.display = 'inline';
+            if (cooldownText) cooldownText.style.display = 'none';
+        }
+    }, 1000);
+}
+
+/**
+ * Handle regenerate button click
+ */
+function handleRegenerateClick() {
+    loadSummary(true);
+}
+
+/**
+ * Initialize summary tab functionality
+ */
+function initializeSummary() {
+    const regenerateBtn = document.getElementById('regenerateSummary');
+    
+    if (regenerateBtn) {
+        regenerateBtn.addEventListener('click', handleRegenerateClick);
+    }
+}
+
 /**
  * Initialize tabs
  */
@@ -966,6 +1186,14 @@ function initializeTabs() {
             
             tab.classList.add('active');
             document.getElementById(`${target}Tab`).classList.add('active');
+            
+            // Load summary on-demand when tab is clicked
+            if (target === 'summary' && !summaryLoaded && currentJobId) {
+                loadSummary();
+            }
         });
     });
+    
+    // Initialize summary functionality
+    initializeSummary();
 }

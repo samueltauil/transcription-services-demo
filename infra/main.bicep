@@ -22,6 +22,7 @@ var resourceBaseName = '${baseName}-${environment}'
 var storageBlobDataOwnerRoleId = 'b7e6dc6d-f1e8-4753-8033-0f276bb0955b'
 var storageQueueDataContributorRoleId = '974c5e8b-45b9-4653-ba55-5f855dd0fb88'
 var cognitiveServicesUserRoleId = 'a97b65f3-24c7-4388-baec-2e87135dc908'
+var cognitiveServicesOpenAIUserRoleId = '5e0bd9bd-7b93-4f28-af87-19fc36ad61bd' // Cognitive Services OpenAI User
 var cosmosDbDataContributorRoleId = '00000000-0000-0000-0000-000000000002' // Cosmos DB Built-in Data Contributor
 
 // ============================================================================
@@ -137,6 +138,39 @@ resource languageService 'Microsoft.CognitiveServices/accounts@2023-10-01-previe
 }
 
 // ============================================================================
+// Azure OpenAI Service - For AI-powered clinical summaries
+// ============================================================================
+resource openAIService 'Microsoft.CognitiveServices/accounts@2023-10-01-preview' = {
+  name: '${resourceBaseName}-openai-${take(uniqueSuffix, 6)}'
+  location: 'eastus2' // Azure OpenAI has limited region availability
+  kind: 'OpenAI'
+  sku: { name: 'S0' }
+  properties: {
+    customSubDomainName: '${resourceBaseName}-openai-${take(uniqueSuffix, 6)}'
+    publicNetworkAccess: 'Enabled'
+    disableLocalAuth: true // Enforce managed identity auth
+  }
+}
+
+// Deploy GPT-4o-mini model for clinical summaries
+resource gpt4oMiniDeployment 'Microsoft.CognitiveServices/accounts/deployments@2023-10-01-preview' = {
+  parent: openAIService
+  name: 'gpt-4o-mini'
+  sku: {
+    name: 'GlobalStandard'
+    capacity: 10 // 10K tokens per minute
+  }
+  properties: {
+    model: {
+      format: 'OpenAI'
+      name: 'gpt-4o-mini'
+      version: '2024-07-18'
+    }
+    raiPolicyName: 'Microsoft.DefaultV2'
+  }
+}
+
+// ============================================================================
 // App Service Plan - Elastic Premium for managed identity storage binding
 // ============================================================================
 resource appServicePlan 'Microsoft.Web/serverfarms@2023-01-01' = {
@@ -200,6 +234,9 @@ resource functionApp 'Microsoft.Web/sites@2023-01-01' = {
         { name: 'AZURE_SPEECH_REGION', value: location }
         // Language Service - Managed Identity (no keys)
         { name: 'AZURE_LANGUAGE_ENDPOINT', value: languageService.properties.endpoint }
+        // Azure OpenAI - Managed Identity (no keys)
+        { name: 'AZURE_OPENAI_ENDPOINT', value: openAIService.properties.endpoint }
+        { name: 'AZURE_OPENAI_DEPLOYMENT', value: gpt4oMiniDeployment.name }
         // Cosmos DB - Managed Identity (no connection string)
         { name: 'COSMOS_ENDPOINT', value: cosmosAccount.properties.documentEndpoint }
         { name: 'COSMOS_DATABASE_NAME', value: cosmosDatabase.name }
@@ -281,6 +318,19 @@ resource languageServiceRole 'Microsoft.Authorization/roleAssignments@2022-04-01
 }
 
 // ============================================================================
+// RBAC - Cognitive Services OpenAI User for Azure OpenAI
+// ============================================================================
+resource openAIServiceRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(openAIService.id, functionApp.id, cognitiveServicesOpenAIUserRoleId)
+  scope: openAIService
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', cognitiveServicesOpenAIUserRoleId)
+    principalId: functionApp.identity.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+// ============================================================================
 // RBAC - Cosmos DB Data Contributor
 // ============================================================================
 resource cosmosDbRole 'Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments@2023-11-15' = {
@@ -320,6 +370,8 @@ output staticWebAppName string = staticWebApp.name
 output staticWebAppUrl string = 'https://${staticWebApp.properties.defaultHostname}'
 output speechServiceEndpoint string = speechService.properties.endpoint
 output languageServiceEndpoint string = languageService.properties.endpoint
+output openAIServiceEndpoint string = openAIService.properties.endpoint
+output openAIDeploymentName string = gpt4oMiniDeployment.name
 output cosmosAccountEndpoint string = cosmosAccount.properties.documentEndpoint
 output storageAccountName string = storageAccount.name
 output resourceGroup string = resourceGroup().name

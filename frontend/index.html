@@ -191,6 +191,9 @@
                     <button class="tab active" data-tab="transcription">Transcription</button>
                     <button class="tab" data-tab="entities">Medical Entities</button>
                     <button class="tab" data-tab="relations">Relationships</button>
+                    <button class="tab" data-tab="summary">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" style="vertical-align: middle; margin-right: 4px;"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>AI Summary
+                    </button>
                     <button class="tab" data-tab="fhir">FHIR Output</button>
                 </div>
 
@@ -211,6 +214,53 @@
                     <div class="tab-pane" id="relationsTab">
                         <div class="relations-container" id="relationsContainer">
                             <p class="placeholder">Relationships between medical entities will appear here...</p>
+                        </div>
+                    </div>
+                    
+                    <div class="tab-pane" id="summaryTab">
+                        <div class="summary-header">
+                            <div class="summary-title">
+                                <svg viewBox="0 0 24 24" width="24" height="24" fill="#0078d4"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-5 14H7v-2h7v2zm3-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>
+                                <h3>AI-Powered Clinical Summary</h3>
+                            </div>
+                            <div class="summary-actions">
+                                <button class="secondary-btn regenerate-btn" id="regenerateSummary" disabled>
+                                    <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+                                    <span class="btn-text">Regenerate</span>
+                                    <span class="cooldown-text" style="display: none;">Wait <span id="cooldownTimer">30</span>s</span>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="summary-container" id="summaryContainer">
+                            <div class="summary-loading" id="summaryLoading" style="display: none;">
+                                <div class="loading-spinner"></div>
+                                <p>Generating AI summary...</p>
+                                <p class="loading-sub">Analyzing transcription and medical entities</p>
+                            </div>
+                            <div class="summary-content" id="summaryContent">
+                                <p class="placeholder">Click "Generate Summary" or switch to this tab after processing to generate an AI-powered clinical summary.</p>
+                            </div>
+                            <div class="summary-error" id="summaryError" style="display: none;">
+                                <svg viewBox="0 0 24 24" width="20" height="20" fill="#d32f2f"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
+                                <span id="summaryErrorText">Error generating summary</span>
+                            </div>
+                        </div>
+                        <div class="summary-footer" id="summaryFooter" style="display: none;">
+                            <div class="summary-meta">
+                                <span class="meta-item cached-badge" id="cachedBadge" style="display: none;">
+                                    <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+                                    Cached
+                                </span>
+                                <span class="meta-item" id="generatedAt">Generated: -</span>
+                                <span class="meta-item" id="summaryModel">Model: -</span>
+                            </div>
+                            <div class="token-usage">
+                                <span class="token-label">Token Usage:</span>
+                                <span class="token-value" id="promptTokens">Prompt: -</span>
+                                <span class="token-value" id="completionTokens">Completion: -</span>
+                                <span class="token-value" id="totalTokens">Total: -</span>
+                                <span class="token-cost" id="estimatedCost">Est. Cost: -</span>
+                            </div>
                         </div>
                     </div>
                     
