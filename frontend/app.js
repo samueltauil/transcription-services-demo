@@ -548,8 +548,10 @@ function displayDiarizedTranscription(phrases, fullText) {
     let currentGroup = null;
     
     phrases.forEach(phrase => {
-        const speaker = phrase.speaker || 0;
-        const colorIdx = speaker % speakerColors.length;
+        const speaker = phrase.speaker || 1;
+        // Azure Speech API uses 1-based speaker IDs, convert to 0-based for array indexing
+        const speakerIndex = speaker - 1;
+        const colorIdx = Math.max(0, speakerIndex) % speakerColors.length;
         const colors = speakerColors[colorIdx];
         
         // Group consecutive phrases by same speaker
@@ -566,7 +568,8 @@ function displayDiarizedTranscription(phrases, fullText) {
             const labelSpan = document.createElement('span');
             labelSpan.className = 'speaker-label';
             labelSpan.style.backgroundColor = colors.label;
-            labelSpan.textContent = speakerLabels[speaker] || `Speaker ${speaker + 1}`;
+            // Use speaker number directly (already 1-based from API)
+            labelSpan.textContent = `Speaker ${speaker}`;
             currentGroup.appendChild(labelSpan);
             
             const textDiv = document.createElement('div');
