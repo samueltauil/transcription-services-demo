@@ -81,38 +81,13 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Deploy via Kudu zipdeploy
-        run: |
-          FUNC_NAME="${{ steps.set-name.outputs.name }}"
-          
-          # Get publishing credentials
-          CREDS=$(az webapp deployment list-publishing-credentials \
-            --name $FUNC_NAME \
-            --resource-group ${{ env.RESOURCE_GROUP }} \
-            --query "[publishingUserName, publishingPassword]" -o tsv)
-          USER=$(echo "$CREDS" | head -1)
-          PASS=$(echo "$CREDS" | tail -1)
-          
-          echo "📦 Deploying to $FUNC_NAME..."
-          
-          HTTP_CODE=$(curl -s -X POST \
-            --user "$USER:$PASS" \
-            --data-binary @deploy.zip \
-            -H "Content-Type: application/zip" \
-            --max-time 600 \
-            -w "%{http_code}" \
-            -o /tmp/deploy_response.txt \
-            "https://$FUNC_NAME.scm.azurewebsites.net/api/zipdeploy?isAsync=false")
-          
-          echo "HTTP Code: $HTTP_CODE"
-          
-          if [ "$HTTP_CODE" -eq "200" ] || [ "$HTTP_CODE" -eq "202" ]; then
-            echo "✅ Deployment successful!"
-          else
-            echo "❌ Deployment failed with code: $HTTP_CODE"
-            cat /tmp/deploy_response.txt || true
-            exit 1
-          fi
+      - name: Deploy to Azure Functions
+        uses: Azure/functions-action@v1
+        with:
+          app-name: ${{ steps.set-name.outputs.name }}
+          package: deploy.zip
+          scm-do-build-during-deployment: false
+          enable-oryx-build: false
 
       - name: Restart function app
         run: |
