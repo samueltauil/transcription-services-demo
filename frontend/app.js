@@ -1090,25 +1090,130 @@ function displaySummary(data) {
 
 /**
  * Format the summary text with proper HTML structure
+ * Handles markdown from OpenAI including headers, lists, bold, and code blocks
  */
 function formatSummaryText(text) {
-    // Convert markdown-style headers to HTML
+    // Escape HTML first to prevent XSS
     let html = text
-        // Bold headers (e.g., **Clinical Overview**:)
-        .replace(/\*\*([^*]+)\*\*:/g, '</div><div class="summary-section"><h4 class="section-title">$1</h4><div class="section-content">')
-        // Handle ** bold ** without colon
-        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-        // Convert line breaks
-        .replace(/\n\n/g, '</p><p>')
-        .replace(/\n/g, '<br>');
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
     
-    // Wrap in container and clean up
-    html = '<div class="summary-section">' + html + '</div></div>';
+    // Process markdown elements in order
     
-    // Clean up empty divs at start
-    html = html.replace(/^<\/div>/, '').replace(/<div class="summary-section"><\/div>/g, '');
+    // Handle code blocks (```json ... ```)
+    html = html.replace(/```(\w+)?\n([\s\S]*?)```/g, '<pre class="code-block"><code>$2</code></pre>');
     
-    return `<div class="summary-sections">${html}</div>`;
+    // Handle ### headers (H3 - main sections)
+    html = html.replace(/^### (\d+)\. ([^\n]+)/gm, '<div class="summary-section"><h3 class="section-header"><span class="section-number">$1</span>$2</h3><div class="section-body">');
+    
+    // Handle ### headers without numbers
+    html = html.replace(/^### ([^\n]+)/gm, '<div class="summary-section"><h3 class="section-header">$1</h3><div class="section-body">');
+    
+    // Handle #### headers (H4 - subsections)
+    html = html.replace(/^#### ([^\n]+)/gm, '<h4 class="subsection-header">$1</h4>');
+    
+    // Handle **bold text**
+    html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    
+    // Handle *italic text*
+    html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+    
+    // Handle bullet points with proper nesting
+    // First, identify list blocks and wrap them
+    const lines = html.split('\n');
+    let inList = false;
+    let listLevel = 0;
+    let result = [];
+    
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const bulletMatch = line.match(/^(\s*)[-•]\s+(.+)$/);
+        
+        if (bulletMatch) {
+            const indent = bulletMatch[1].length;
+            const content = bulletMatch[2];
+            const newLevel = Math.floor(indent / 2) + 1;
+            
+            if (!inList) {
+                result.push('<ul class="summary-list">');
+                inList = true;
+                listLevel = 1;
+            }
+            
+            // Handle nested lists
+            while (listLevel < newLevel) {
+                result.push('<ul class="summary-list nested">');
+                listLevel++;
+            }
+            while (listLevel > newLevel) {
+                result.push('</ul>');
+                listLevel--;
+            }
+            
+            result.push(`<li>${content}</li>`);
+        } else {
+            if (inList) {
+                while (listLevel > 0) {
+                    result.push('</ul>');
+                    listLevel--;
+                }
+                inList = false;
+            }
+            result.push(line);
+        }
+    }
+    
+    // Close any remaining lists
+    while (listLevel > 0) {
+        result.push('</ul>');
+        listLevel--;
+    }
+    
+    html = result.join('\n');
+    
+    // Handle inline code `code`
+    html = html.replace(/`([^`]+)`/g, '<code class="inline-code">$1</code>');
+    
+    // Handle horizontal rules
+    html = html.replace(/^---+$/gm, '<hr class="section-divider">');
+    
+    // Convert remaining double newlines to paragraph breaks
+    html = html.replace(/\n\n+/g, '</p><p>');
+    
+    // Convert single newlines to line breaks (but not inside lists)
+    html = html.replace(/\n/g, '<br>');
+    
+    // Clean up empty paragraphs and broken tags
+    html = html.replace(/<p><\/p>/g, '');
+    html = html.replace(/<p><br>/g, '<p>');
+    html = html.replace(/<br><\/p>/g, '</p>');
+    html = html.replace(/<p>\s*<div/g, '<div');
+    html = html.replace(/<\/div>\s*<\/p>/g, '</div>');
+    html = html.replace(/<p>\s*<ul/g, '<ul');
+    html = html.replace(/<\/ul>\s*<\/p>/g, '</ul>');
+    html = html.replace(/<p>\s*<h/g, '<h');
+    html = html.replace(/<\/h(\d)>\s*<\/p>/g, '</h$1>');
+    html = html.replace(/<br>\s*<ul/g, '<ul');
+    html = html.replace(/<\/ul>\s*<br>/g, '</ul>');
+    html = html.replace(/<br>\s*<div/g, '<div');
+    html = html.replace(/<br>\s*<h/g, '<h');
+    
+    // Close any unclosed section divs (count opens vs closes)
+    const openSections = (html.match(/<div class="summary-section">/g) || []).length;
+    const closeDivs = (html.match(/<\/div>/g) || []).length;
+    const sectionBodyOpens = (html.match(/<div class="section-body">/g) || []).length;
+    
+    // Each section has 2 divs (section + body), so we need 2 closes per section
+    const expectedCloses = openSections * 2;
+    const missingCloses = expectedCloses - closeDivs;
+    
+    for (let i = 0; i < missingCloses; i++) {
+        html += '</div>';
+    }
+    
+    // Wrap in container
+    return `<div class="summary-content-formatted">${html}</div>`;
 }
 
 /**
