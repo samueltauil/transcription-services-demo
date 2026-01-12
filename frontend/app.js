@@ -465,21 +465,41 @@ function displayEntities(entitiesByCategory) {
                 }
             }
             
-            // Build entity links to medical ontologies
+            // Extract UMLS code if available
+            let umlsCode = '';
+            let umlsUrl = '';
+            if (entity.links && entity.links.length > 0) {
+                const umlsLink = entity.links.find(l => l.dataSource === 'UMLS');
+                if (umlsLink) {
+                    umlsCode = umlsLink.id;
+                    umlsUrl = `https://uts.nlm.nih.gov/uts/umls/concept/${umlsLink.id}`;
+                }
+            }
+            
+            // Build entity links to medical ontologies (show other sources beyond UMLS)
             let linksHtml = '';
             if (entity.links && entity.links.length > 0) {
-                const linkItems = entity.links.slice(0, 2).map(link => {
-                    const url = getOntologyUrl(link.dataSource, link.id);
-                    if (url) {
-                        return `<a href="${url}" target="_blank" class="entity-link" title="${link.dataSource}: ${link.id}">${link.dataSource}</a>`;
-                    }
-                    return `<span class="entity-link-text" title="${link.id}">${link.dataSource}</span>`;
-                });
-                linksHtml = `<span class="entity-links">${linkItems.join(' ')}</span>`;
+                const otherLinks = entity.links.filter(l => l.dataSource !== 'UMLS').slice(0, 2);
+                if (otherLinks.length > 0) {
+                    const linkItems = otherLinks.map(link => {
+                        const url = getOntologyUrl(link.dataSource, link.id);
+                        if (url) {
+                            return `<a href="${url}" target="_blank" class="entity-link" title="${link.dataSource}: ${link.id}">${link.dataSource}</a>`;
+                        }
+                        return `<span class="entity-link-text" title="${link.id}">${link.dataSource}</span>`;
+                    });
+                    linksHtml = `<span class="entity-links">${linkItems.join(' ')}</span>`;
+                }
             }
+            
+            // Build UMLS code display
+            const umlsHtml = umlsCode 
+                ? `<a href="${umlsUrl}" target="_blank" class="umls-code" title="View in UMLS">${umlsCode}</a>` 
+                : '';
             
             tag.innerHTML = `
                 <span class="entity-text">${entity.text}</span>
+                ${umlsHtml}
                 ${assertionHtml}
                 <span class="confidence">${Math.round(entity.confidence_score * 100)}%</span>
                 ${linksHtml}
