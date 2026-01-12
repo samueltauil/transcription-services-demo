@@ -365,8 +365,8 @@ async function loadResults() {
         // Display entities
         displayEntities(data.medical_analysis?.entities_by_category || {});
         
-        // Display relations
-        displayRelations(data.medical_analysis?.relations || []);
+        // Display relations with entity assertion correlation
+        displayRelations(data.medical_analysis?.relations || [], data.medical_analysis?.entities || []);
         
         // Display FHIR
         document.getElementById('fhirOutput').textContent = 
@@ -639,8 +639,10 @@ function displayDiarizedTranscription(phrases, fullText) {
 
 /**
  * Display relationships between medical entities with enhanced visualization
+ * @param {Array} relations - The relations array from API
+ * @param {Array} allEntities - All entities for assertion lookup correlation
  */
-function displayRelations(relations) {
+function displayRelations(relations, allEntities = []) {
     const container = document.getElementById('relationsContainer');
     container.innerHTML = '';
     
@@ -648,6 +650,14 @@ function displayRelations(relations) {
         container.innerHTML = '<p class="placeholder">No relationships found between medical entities</p>';
         return;
     }
+    
+    // Build lookup map for assertions by offset (entities in relations don't include assertions)
+    const assertionsByOffset = {};
+    allEntities.forEach(entity => {
+        if (entity.assertion && entity.offset !== undefined) {
+            assertionsByOffset[entity.offset] = entity.assertion;
+        }
+    });
     
     // Group relations by type
     const groupedRelations = {};
@@ -728,7 +738,7 @@ function displayRelations(relations) {
             const relationDiv = document.createElement('div');
             relationDiv.className = 'relation-item';
             
-            // Build entity cards with more detail
+            // Build entity cards with more detail and assertion lookup
             const entityCards = entities.map((e, idx) => {
                 // Handle confidence - API returns 0-1, convert to percentage
                 let confidencePercent = null;
@@ -738,10 +748,52 @@ function displayRelations(relations) {
                 }
                 const confidenceClass = confidencePercent >= 90 ? 'high' : confidencePercent >= 70 ? 'medium' : 'low';
                 
+                // Look up assertion from correlated entity by offset
+                const assertion = assertionsByOffset[e.offset];
+                let assertionHtml = '';
+                
+                if (assertion) {
+                    const certainty = assertion.certainty || assertion.Certainty;
+                    const conditionality = assertion.conditionality || assertion.Conditionality;
+                    const association = assertion.association || assertion.Association;
+                    const temporal = assertion.temporal || assertion.Temporal;
+                    
+                    // CERTAINTY badges
+                    if (certainty === 'negative') {
+                        assertionHtml += '<span class="assertion-badge-sm negated" title="Negated - entity is explicitly denied">✗ Negated</span>';
+                    } else if (certainty === 'negative_possible' || certainty === 'negativePossible') {
+                        assertionHtml += '<span class="assertion-badge-sm negated-possible" title="Possibly absent">? Possibly Absent</span>';
+                    } else if (certainty === 'positive_possible' || certainty === 'positivePossible') {
+                        assertionHtml += '<span class="assertion-badge-sm affirmed-possible" title="Likely present">~ Likely</span>';
+                    } else if (certainty === 'neutral_possible' || certainty === 'neutralPossible') {
+                        assertionHtml += '<span class="assertion-badge-sm uncertain" title="Uncertain">? Uncertain</span>';
+                    }
+                    
+                    // CONDITIONALITY badges
+                    if (conditionality === 'hypothetical') {
+                        assertionHtml += '<span class="assertion-badge-sm hypothetical" title="Hypothetical condition">⚡ Hypothetical</span>';
+                    } else if (conditionality === 'conditional') {
+                        assertionHtml += '<span class="assertion-badge-sm conditional" title="Conditional">↔ Conditional</span>';
+                    }
+                    
+                    // ASSOCIATION badges
+                    if (association === 'other') {
+                        assertionHtml += '<span class="assertion-badge-sm other-subject" title="Related to family/other">👤 Other Person</span>';
+                    }
+                    
+                    // TEMPORAL badges
+                    if (temporal === 'past') {
+                        assertionHtml += '<span class="assertion-badge-sm temporal-past" title="Past occurrence">◄ Past</span>';
+                    } else if (temporal === 'future') {
+                        assertionHtml += '<span class="assertion-badge-sm temporal-future" title="Future/planned">► Future</span>';
+                    }
+                }
+                
                 return `
-                    <div class="relation-entity-card">
+                    <div class="relation-entity-card${assertion ? ' has-assertion' : ''}">
                         <div class="entity-role">${e.role || 'Entity'}</div>
                         <div class="entity-text">${e.text || 'Unknown'}</div>
+                        ${assertionHtml ? `<div class="entity-assertions">${assertionHtml}</div>` : ''}
                         <div class="entity-meta">
                             <span class="entity-category-tag">${formatCategoryName(e.category || '')}</span>
                             ${confidencePercent !== null && confidencePercent > 0 ? `<span class="entity-confidence ${confidenceClass}">${confidencePercent}%</span>` : ''}
@@ -769,9 +821,51 @@ function displayRelations(relations) {
         container.appendChild(groupDiv);
     });
     
+    // Count assertions in relations for summary
+    let relationsWithAssertions = 0;
+    let negatedInRelations = 0;
+    let conditionalInRelations = 0;
+    
+    relations.forEach(relation => {
+        const entities = relation.entities || [];
+        let hasAssertion = false;
+        entities.forEach(e => {
+            const assertion = assertionsByOffset[e.offset];
+            if (assertion) {
+                hasAssertion = true;
+                if (assertion.certainty === 'negative' || assertion.certainty === 'negative_possible') {
+                    negatedInRelations++;
+                }
+                if (assertion.conditionality) {
+                    conditionalInRelations++;
+                }
+            }
+        });
+        if (hasAssertion) relationsWithAssertions++;
+    });
+    
     // Add summary at the top
     const summaryDiv = document.createElement('div');
     summaryDiv.className = 'relations-summary';
+    
+    let assertionSummaryHtml = '';
+    if (relationsWithAssertions > 0) {
+        assertionSummaryHtml = `
+            <div class="summary-stat assertion-stat">
+                <span class="stat-value">${relationsWithAssertions}</span>
+                <span class="stat-label">With Assertions</span>
+            </div>
+        `;
+        if (negatedInRelations > 0) {
+            assertionSummaryHtml += `
+                <div class="summary-stat negated-stat">
+                    <span class="stat-value">${negatedInRelations}</span>
+                    <span class="stat-label">Negated Entities</span>
+                </div>
+            `;
+        }
+    }
+    
     summaryDiv.innerHTML = `
         <div class="summary-stat">
             <span class="stat-value">${relations.length}</span>
@@ -781,6 +875,7 @@ function displayRelations(relations) {
             <span class="stat-value">${Object.keys(groupedRelations).length}</span>
             <span class="stat-label">Relationship Types</span>
         </div>
+        ${assertionSummaryHtml}
     `;
     container.insertBefore(summaryDiv, container.firstChild);
 }

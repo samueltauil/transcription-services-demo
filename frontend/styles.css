@@ -490,6 +490,7 @@ header h1 {
 
 .relations-summary {
     display: flex;
+    flex-wrap: wrap;
     gap: 1.5rem;
     padding: 1rem;
     background: var(--primary-light);
@@ -512,6 +513,14 @@ header h1 {
 .summary-stat .stat-label {
     font-size: 0.75rem;
     color: var(--text-secondary);
+}
+
+.summary-stat.assertion-stat .stat-value {
+    color: #059669;
+}
+
+.summary-stat.negated-stat .stat-value {
+    color: #dc2626;
 }
 
 .relation-group {
@@ -584,7 +593,7 @@ header h1 {
 .relation-entity-card {
     flex: 1;
     min-width: 140px;
-    max-width: 250px;
+    max-width: 280px;
     background: var(--surface-alt);
     border: 1px solid var(--border);
     border-radius: var(--radius);
@@ -592,6 +601,85 @@ header h1 {
     display: flex;
     flex-direction: column;
     gap: 0.375rem;
+    transition: var(--transition);
+}
+
+.relation-entity-card.has-assertion {
+    border-left: 3px solid var(--primary);
+}
+
+.entity-assertions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    margin: 0.25rem 0;
+}
+
+/* Small assertion badges for relations view */
+.assertion-badge-sm {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.125rem;
+    padding: 0.125rem 0.375rem;
+    border-radius: 8px;
+    font-size: 0.625rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+}
+
+.assertion-badge-sm.negated {
+    background: #fee2e2;
+    color: #991b1b;
+    border: 1px solid #fca5a5;
+}
+
+.assertion-badge-sm.negated-possible {
+    background: #fff1f2;
+    color: #be123c;
+    border: 1px solid #fda4af;
+}
+
+.assertion-badge-sm.affirmed-possible {
+    background: #dcfce7;
+    color: #166534;
+    border: 1px solid #86efac;
+}
+
+.assertion-badge-sm.uncertain {
+    background: #f3f4f6;
+    color: #4b5563;
+    border: 1px solid #d1d5db;
+}
+
+.assertion-badge-sm.hypothetical {
+    background: #fef3c7;
+    color: #92400e;
+    border: 1px solid #fcd34d;
+}
+
+.assertion-badge-sm.conditional {
+    background: #dbeafe;
+    color: #1e40af;
+    border: 1px solid #93c5fd;
+}
+
+.assertion-badge-sm.other-subject {
+    background: #f3e8ff;
+    color: #6b21a8;
+    border: 1px solid #d8b4fe;
+}
+
+.assertion-badge-sm.temporal-past {
+    background: #fef3c7;
+    color: #78350f;
+    border: 1px solid #fcd34d;
+}
+
+.assertion-badge-sm.temporal-future {
+    background: #cffafe;
+    color: #0e7490;
+    border: 1px solid #67e8f9;
 }
 
 .entity-role {
