@@ -346,9 +346,29 @@ async function loadResults() {
         document.getElementById('relationCount').textContent = 
             data.medical_analysis?.summary?.total_relations || '-';
         
-        // Display transcription
-        document.getElementById('transcriptionText').textContent = 
-            data.transcription?.text || 'No transcription available';
+        // Update speaker count if available
+        const speakerCountEl = document.getElementById('speakerCount');
+        if (speakerCountEl) {
+            speakerCountEl.textContent = data.medical_analysis?.summary?.speaker_count || '-';
+        }
+        
+        // Update assertion stats if available
+        const assertionStats = data.medical_analysis?.summary?.assertions;
+        if (assertionStats) {
+            const negatedEl = document.getElementById('negatedCount');
+            const linkedEl = document.getElementById('linkedCount');
+            if (negatedEl) negatedEl.textContent = assertionStats.negated || '0';
+            if (linkedEl) linkedEl.textContent = data.medical_analysis?.summary?.linked_entities || '0';
+        }
+        
+        // Display transcription with optional diarization
+        const diarization = data.medical_analysis?.diarization;
+        if (diarization && diarization.phrases && diarization.phrases.length > 0 && diarization.speaker_count > 1) {
+            displayDiarizedTranscription(diarization.phrases, data.transcription?.text);
+        } else {
+            document.getElementById('transcriptionText').innerHTML = 
+                `<p>${data.transcription?.text || 'No transcription available'}</p>`;
+        }
         
         // Display entities
         displayEntities(data.medical_analysis?.entities_by_category || {});
@@ -401,7 +421,7 @@ function updateCostSavings() {
 }
 
 /**
- * Display medical entities by category
+ * Display medical entities by category with assertions and entity links
  */
 function displayEntities(entitiesByCategory) {
     const container = document.getElementById('entitiesContainer');
@@ -429,15 +449,170 @@ function displayEntities(entitiesByCategory) {
         entities.forEach(entity => {
             const tag = document.createElement('span');
             tag.className = 'entity-tag';
+            
+            // Build assertion badges
+            let assertionHtml = '';
+            if (entity.assertion) {
+                const certainty = entity.assertion.certainty;
+                const conditionality = entity.assertion.conditionality;
+                
+                if (certainty === 'negative' || certainty === 'negativePossible') {
+                    assertionHtml += '<span class="assertion-badge negated">Negated</span>';
+                } else if (certainty === 'positive') {
+                    assertionHtml += '<span class="assertion-badge affirmed">Affirmed</span>';
+                }
+                
+                if (conditionality === 'hypothetical') {
+                    assertionHtml += '<span class="assertion-badge hypothetical">Hypothetical</span>';
+                } else if (conditionality === 'conditional') {
+                    assertionHtml += '<span class="assertion-badge conditional">Conditional</span>';
+                }
+                
+                if (entity.assertion.association === 'other') {
+                    assertionHtml += '<span class="assertion-badge other-subject">Other Subject</span>';
+                }
+            }
+            
+            // Build entity links to medical ontologies
+            let linksHtml = '';
+            if (entity.links && entity.links.length > 0) {
+                const linkItems = entity.links.slice(0, 2).map(link => {
+                    const url = getOntologyUrl(link.dataSource, link.id);
+                    if (url) {
+                        return `<a href="${url}" target="_blank" class="entity-link" title="${link.dataSource}: ${link.id}">${link.dataSource}</a>`;
+                    }
+                    return `<span class="entity-link-text" title="${link.id}">${link.dataSource}</span>`;
+                });
+                linksHtml = `<span class="entity-links">${linkItems.join(' ')}</span>`;
+            }
+            
             tag.innerHTML = `
-                ${entity.text}
+                <span class="entity-text">${entity.text}</span>
+                ${assertionHtml}
                 <span class="confidence">${Math.round(entity.confidence_score * 100)}%</span>
+                ${linksHtml}
             `;
             list.appendChild(tag);
         });
         
         categoryDiv.appendChild(list);
         container.appendChild(categoryDiv);
+    });
+}
+
+/**
+ * Get URL for medical ontology lookup
+ */
+function getOntologyUrl(dataSource, id) {
+    const ontologyUrls = {
+        'UMLS': `https://uts.nlm.nih.gov/uts/umls/concept/${id}`,
+        'SNOMED CT': `https://browser.ihtsdotools.org/?perspective=full&conceptId1=${id}`,
+        'ICD-10-CM': `https://icd.who.int/browse10/2019/en#/${id}`,
+        'ICD-9-CM': `https://icd.who.int/browse10/2019/en#/${id}`,
+        'RxNorm': `https://mor.nlm.nih.gov/RxNav/search?searchBy=RXCUI&searchTerm=${id}`,
+        'MeSH': `https://meshb.nlm.nih.gov/record/ui?ui=${id}`,
+        'CPT': null,  // No public URL
+        'NDC': `https://ndclist.com/?s=${id}`,
+        'NCI': `https://ncit.nci.nih.gov/ncitbrowser/ConceptReport.jsp?dictionary=NCI_Thesaurus&code=${id}`
+    };
+    return ontologyUrls[dataSource] || null;
+}
+
+/**
+ * Display diarized transcription with speaker identification
+ */
+function displayDiarizedTranscription(phrases, fullText) {
+    const container = document.getElementById('transcriptionText');
+    container.innerHTML = '';
+    
+    // Speaker colors for visual distinction
+    const speakerColors = [
+        { bg: '#e3f2fd', border: '#1976d2', label: '#1976d2' },  // Blue - Doctor
+        { bg: '#f3e5f5', border: '#7b1fa2', label: '#7b1fa2' },  // Purple - Patient
+        { bg: '#e8f5e9', border: '#388e3c', label: '#388e3c' },  // Green
+        { bg: '#fff3e0', border: '#f57c00', label: '#f57c00' },  // Orange
+        { bg: '#fce4ec', border: '#c2185b', label: '#c2185b' },  // Pink
+        { bg: '#e0f7fa', border: '#00838f', label: '#00838f' },  // Cyan
+    ];
+    
+    // Speaker labels (common healthcare scenario)
+    const speakerLabels = ['Speaker 1', 'Speaker 2', 'Speaker 3', 'Speaker 4', 'Speaker 5', 'Speaker 6'];
+    
+    // Add toggle for diarization view
+    const toggleDiv = document.createElement('div');
+    toggleDiv.className = 'diarization-toggle';
+    toggleDiv.innerHTML = `
+        <button class="toggle-btn active" data-view="diarized">Speaker View</button>
+        <button class="toggle-btn" data-view="plain">Plain Text</button>
+    `;
+    container.appendChild(toggleDiv);
+    
+    // Create diarized view
+    const diarizedView = document.createElement('div');
+    diarizedView.className = 'diarized-view';
+    diarizedView.id = 'diarizedView';
+    
+    let currentSpeaker = null;
+    let currentGroup = null;
+    
+    phrases.forEach(phrase => {
+        const speaker = phrase.speaker || 0;
+        const colorIdx = speaker % speakerColors.length;
+        const colors = speakerColors[colorIdx];
+        
+        // Group consecutive phrases by same speaker
+        if (speaker !== currentSpeaker) {
+            if (currentGroup) {
+                diarizedView.appendChild(currentGroup);
+            }
+            
+            currentGroup = document.createElement('div');
+            currentGroup.className = 'speaker-group';
+            currentGroup.style.borderLeftColor = colors.border;
+            currentGroup.style.backgroundColor = colors.bg;
+            
+            const labelSpan = document.createElement('span');
+            labelSpan.className = 'speaker-label';
+            labelSpan.style.backgroundColor = colors.label;
+            labelSpan.textContent = speakerLabels[speaker] || `Speaker ${speaker + 1}`;
+            currentGroup.appendChild(labelSpan);
+            
+            const textDiv = document.createElement('div');
+            textDiv.className = 'speaker-text';
+            currentGroup.appendChild(textDiv);
+            
+            currentSpeaker = speaker;
+        }
+        
+        const textSpan = document.createElement('span');
+        textSpan.textContent = phrase.text + ' ';
+        currentGroup.querySelector('.speaker-text').appendChild(textSpan);
+    });
+    
+    if (currentGroup) {
+        diarizedView.appendChild(currentGroup);
+    }
+    
+    container.appendChild(diarizedView);
+    
+    // Create plain text view (hidden by default)
+    const plainView = document.createElement('div');
+    plainView.className = 'plain-view';
+    plainView.id = 'plainView';
+    plainView.style.display = 'none';
+    plainView.innerHTML = `<p>${fullText}</p>`;
+    container.appendChild(plainView);
+    
+    // Add toggle functionality
+    toggleDiv.querySelectorAll('.toggle-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            toggleDiv.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            
+            const view = btn.dataset.view;
+            document.getElementById('diarizedView').style.display = view === 'diarized' ? 'block' : 'none';
+            document.getElementById('plainView').style.display = view === 'plain' ? 'block' : 'none';
+        });
     });
 }
 

@@ -308,8 +308,8 @@ def get_speech_token(config: AzureConfig) -> str:
         logger.error(f"Failed to get Speech token via managed identity: {e}")
         raise
 
-def transcribe_audio_rest(audio_bytes: bytes, config: AzureConfig) -> str:
-    """Transcribe audio using Speech Fast Transcription API (supports Azure AD auth)"""
+def transcribe_audio_rest(audio_bytes: bytes, config: AzureConfig, enable_diarization: bool = True) -> dict:
+    """Transcribe audio using Speech Fast Transcription API with optional diarization"""
     # Use Fast Transcription API which supports Azure AD/managed identity
     if config.speech_endpoint:
         base_endpoint = config.speech_endpoint.rstrip('/')
@@ -323,7 +323,20 @@ def transcribe_audio_rest(audio_bytes: bytes, config: AzureConfig) -> str:
         logger.info(f"Using Fast Transcription API: {url}")
     except Exception as e:
         logger.error(f"Failed to authenticate for Speech API: {e}")
-        return f"Authentication failed: {str(e)}"
+        return {"text": f"Authentication failed: {str(e)}", "phrases": [], "speakers": []}
+    
+    # Build definition with optional diarization
+    definition = {
+        "locales": ["en-US"],
+        "profanityFilterMode": "Masked"
+    }
+    
+    # Enable diarization for speaker identification
+    if enable_diarization:
+        definition["diarization"] = {
+            "maxSpeakers": 10,
+            "enabled": True
+        }
     
     # Fast Transcription API uses multipart/form-data
     import io
@@ -331,29 +344,52 @@ def transcribe_audio_rest(audio_bytes: bytes, config: AzureConfig) -> str:
         'audio': ('audio.wav', io.BytesIO(audio_bytes), 'audio/wav')
     }
     data = {
-        'definition': '{"locales": ["en-US"]}'
+        'definition': json.dumps(definition)
     }
     headers = {
         "Authorization": f"Bearer {token}",
         "Accept": "application/json"
     }
     
-    response = requests.post(url, headers=headers, files=files, data=data, timeout=120)
+    response = requests.post(url, headers=headers, files=files, data=data, timeout=180)
     
     if response.status_code == 200:
         result = response.json()
-        # Fast Transcription API returns combinedPhrases with display text
+        
+        # Extract combined text
+        combined_text = ""
         combined = result.get("combinedPhrases", [])
         if combined:
-            return combined[0].get("text", "")
-        # Fallback to phrases
-        phrases = result.get("phrases", [])
-        if phrases:
-            return " ".join([p.get("text", "") for p in phrases])
-        return "No transcription result"
+            combined_text = combined[0].get("text", "")
+        else:
+            # Fallback to phrases
+            phrases = result.get("phrases", [])
+            if phrases:
+                combined_text = " ".join([p.get("text", "") for p in phrases])
+        
+        # Extract diarized phrases with speaker information
+        diarized_phrases = []
+        speakers_found = set()
+        for phrase in result.get("phrases", []):
+            speaker = phrase.get("speaker", 0)
+            speakers_found.add(speaker)
+            diarized_phrases.append({
+                "text": phrase.get("text", ""),
+                "speaker": speaker,
+                "offset": phrase.get("offset", ""),
+                "duration": phrase.get("duration", ""),
+                "confidence": phrase.get("confidence", 0)
+            })
+        
+        return {
+            "text": combined_text or "No transcription result",
+            "phrases": diarized_phrases,
+            "speakers": list(speakers_found),
+            "speaker_count": len(speakers_found)
+        }
     else:
         logger.error(f"Speech API error: {response.status_code} - {response.text}")
-        return f"Transcription failed: {response.status_code}"
+        return {"text": f"Transcription failed: {response.status_code}", "phrases": [], "speakers": []}
 
 
 # ============================================================================
@@ -429,10 +465,33 @@ def analyze_health_text_rest(text: str, config: AzureConfig) -> dict:
                             doc_entities = doc.get("entities", [])
                             entity_by_index = {}
                             for idx, entity in enumerate(doc_entities):
+                                # Extract assertion information (negation, conditionality, etc.)
+                                assertion_data = entity.get("assertion", {})
+                                assertion = None
+                                if assertion_data:
+                                    assertion = {
+                                        "certainty": assertion_data.get("certainty"),  # positive, negativePossible, negative, neutral
+                                        "conditionality": assertion_data.get("conditionality"),  # hypothetical, conditional
+                                        "association": assertion_data.get("association")  # subject, other
+                                    }
+                                
+                                # Extract entity links to medical ontologies (UMLS, SNOMED, ICD-10, etc.)
+                                links = []
+                                for link in entity.get("links", []):
+                                    links.append({
+                                        "dataSource": link.get("dataSource"),  # UMLS, SNOMED CT, ICD-10-CM, etc.
+                                        "id": link.get("id")  # Code like C0027361 for UMLS
+                                    })
+                                
                                 entities.append({
                                     "text": entity.get("text"),
                                     "category": entity.get("category"),
-                                    "confidence_score": entity.get("confidenceScore", 0)
+                                    "subcategory": entity.get("subcategory"),
+                                    "confidence_score": entity.get("confidenceScore", 0),
+                                    "offset": entity.get("offset", 0),
+                                    "length": entity.get("length", 0),
+                                    "assertion": assertion,
+                                    "links": links if links else None
                                 })
                                 # Store by index for relation lookup (API uses #/documents/0/entities/N format)
                                 entity_by_index[idx] = entity
@@ -562,8 +621,11 @@ def process_transcription(req: func.HttpRequest) -> func.HttpResponse:
         blob_client = get_blob_client(config, blob_name)
         audio_bytes = blob_client.download_blob().readall()
         
-        # Transcribe using REST API
-        transcription_text = transcribe_audio_rest(audio_bytes, config)
+        # Transcribe using REST API with diarization
+        transcription_result = transcribe_audio_rest(audio_bytes, config, enable_diarization=True)
+        transcription_text = transcription_result.get("text", "")
+        diarized_phrases = transcription_result.get("phrases", [])
+        speaker_count = transcription_result.get("speaker_count", 0)
         
         job.transcription_text = transcription_text
         job.status = JobStatus.ANALYZING
@@ -581,6 +643,25 @@ def process_transcription(req: func.HttpRequest) -> func.HttpResponse:
                 entities_by_category[cat] = []
             entities_by_category[cat].append(e)
         
+        # Count assertions and linked entities
+        assertion_counts = {"negated": 0, "conditional": 0, "hypothetical": 0, "affirmed": 0}
+        linked_entities_count = 0
+        for entity in health_results.get("entities", []):
+            if entity.get("links"):
+                linked_entities_count += 1
+            assertion = entity.get("assertion")
+            if assertion:
+                certainty = assertion.get("certainty", "")
+                if certainty in ("negative", "negativePossible"):
+                    assertion_counts["negated"] += 1
+                elif certainty == "positive":
+                    assertion_counts["affirmed"] += 1
+                conditionality = assertion.get("conditionality", "")
+                if conditionality == "hypothetical":
+                    assertion_counts["hypothetical"] += 1
+                elif conditionality == "conditional":
+                    assertion_counts["conditional"] += 1
+        
         # Calculate summary
         total_entities = len(health_results.get("entities", []))
         total_relations = len(health_results.get("relations", []))
@@ -589,10 +670,17 @@ def process_transcription(req: func.HttpRequest) -> func.HttpResponse:
             "entities": health_results.get("entities", []),
             "entities_by_category": entities_by_category,
             "relations": health_results.get("relations", []),
+            "diarization": {
+                "phrases": diarized_phrases,
+                "speaker_count": speaker_count
+            },
             "summary": {
                 "total_entities": total_entities,
                 "total_relations": total_relations,
-                "categories": list(entities_by_category.keys())
+                "categories": list(entities_by_category.keys()),
+                "speaker_count": speaker_count,
+                "linked_entities": linked_entities_count,
+                "assertions": assertion_counts
             }
         }
         job.status = JobStatus.COMPLETED
@@ -600,11 +688,11 @@ def process_transcription(req: func.HttpRequest) -> func.HttpResponse:
         job.updated_at = datetime.utcnow().isoformat() + "Z"
         container.upsert_item(body=job.to_dict())
         
-        logger.info(f"Job {job_id} completed in {job.processing_time_seconds:.2f}s")
+        logger.info(f"Job {job_id} completed in {job.processing_time_seconds:.2f}s with {speaker_count} speakers")
         return func.HttpResponse(
             json.dumps({"job_id": job_id, "status": JobStatus.COMPLETED, "processing_time": job.processing_time_seconds,
                        "transcription_preview": transcription_text[:500] if transcription_text else "",
-                       "entities_found": len(health_results.get("entities", []))}),
+                       "entities_found": total_entities, "speakers_detected": speaker_count}),
             status_code=200, mimetype="application/json"
         )
         
