@@ -394,8 +394,38 @@ def generate_fhir_bundle(medical_entities: dict) -> dict:
     # Add relations as Observation resources with references
     for rel_idx, relation in enumerate(relations, 1):
         rel_type = relation.get("relationType", "Unknown")
-        source = relation.get("source", {})
-        target = relation.get("target", {})
+        entities_in_rel = relation.get("entities", [])
+        
+        # Extract source and target from entities array (usually 2 entities with roles)
+        source_entity = None
+        target_entity = None
+        for ent in entities_in_rel:
+            role = ent.get("role", "")
+            # Common source roles
+            if role in ["Condition", "Medication", "Treatment", "Examination", "Gene", "BodyStructure"]:
+                if source_entity is None:
+                    source_entity = ent
+                else:
+                    target_entity = ent
+            # Common target/modifier roles  
+            elif role in ["Dosage", "Route", "Form", "Frequency", "Time", "Course", "Direction", 
+                         "Qualifier", "Scale", "Unit", "Value", "BodySite", "Amount", "Variant", "MutationType"]:
+                target_entity = ent
+            else:
+                # Fallback: first is source, second is target
+                if source_entity is None:
+                    source_entity = ent
+                else:
+                    target_entity = ent
+        
+        # If we only have entities but couldn't determine source/target, use first two
+        if source_entity is None and len(entities_in_rel) > 0:
+            source_entity = entities_in_rel[0]
+        if target_entity is None and len(entities_in_rel) > 1:
+            target_entity = entities_in_rel[1]
+        
+        source_text = source_entity.get("text", "") if source_entity else ""
+        target_text = target_entity.get("text", "") if target_entity else ""
         
         relation_resource = {
             "resourceType": "Observation",
@@ -418,23 +448,34 @@ def generate_fhir_bundle(medical_entities: dict) -> dict:
                     "code": rel_type,
                     "display": rel_type.replace("Of", " of ").replace("For", " for ")
                 }],
-                "text": f"{rel_type}: {source.get('text', '')} → {target.get('text', '')}"
+                "text": f"{rel_type}: {source_text} → {target_text}"
             },
             "component": [
                 {
                     "code": {"text": "source"},
-                    "valueString": source.get("text", "")
+                    "valueString": source_text
                 },
                 {
-                    "code": {"text": "target"},
-                    "valueString": target.get("text", "")
+                    "code": {"text": "target"}, 
+                    "valueString": target_text
                 }
             ],
             "extension": [{
                 "url": "http://hl7.org/fhir/StructureDefinition/confidence",
-                "valueDecimal": round(relation.get("confidence_score", 0), 4)
+                "valueDecimal": round(relation.get("confidenceScore", relation.get("confidence_score", 0)), 4)
             }]
         }
+        
+        # Add all entities with their roles
+        for ent_idx, ent in enumerate(entities_in_rel):
+            relation_resource["component"].append({
+                "code": {"text": ent.get("role", f"entity-{ent_idx}")},
+                "valueString": ent.get("text", ""),
+                "extension": [{
+                    "url": "category",
+                    "valueString": ent.get("category", "")
+                }]
+            })
         
         fhir_resources.append({
             "fullUrl": f"urn:uuid:relation-{rel_idx}",
