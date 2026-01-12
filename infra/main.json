@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.39.26.7824",
-      "templateHash": "14949180369549694767"
+      "templateHash": "13944285995855255064"
     }
   },
   "parameters": {
@@ -58,6 +58,7 @@
         "supportsHttpsTrafficOnly": true,
         "minimumTlsVersion": "TLS1_2",
         "allowSharedKeyAccess": true,
+        "publicNetworkAccess": "Enabled",
         "encryption": {
           "services": {
             "blob": {
@@ -91,6 +92,7 @@
       "properties": {
         "databaseAccountOfferType": "Standard",
         "disableLocalAuth": true,
+        "publicNetworkAccess": "Enabled",
         "consistencyPolicy": {
           "defaultConsistencyLevel": "Session"
         },

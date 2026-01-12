@@ -38,6 +38,7 @@ resource storageAccount 'Microsoft.Storage/storageAccounts@2023-01-01' = {
     supportsHttpsTrafficOnly: true
     minimumTlsVersion: 'TLS1_2'
     allowSharedKeyAccess: true // Required for AzureWebJobsStorage
+    publicNetworkAccess: 'Enabled' // Required for Function App access without VNet
     encryption: {
       services: {
         blob: { enabled: true }
@@ -66,6 +67,7 @@ resource cosmosAccount 'Microsoft.DocumentDB/databaseAccounts@2023-11-15' = {
   properties: {
     databaseAccountOfferType: 'Standard'
     disableLocalAuth: true // Enforce managed identity auth
+    publicNetworkAccess: 'Enabled' // Required for Function App access without VNet
     consistencyPolicy: {
       defaultConsistencyLevel: 'Session'
     }
