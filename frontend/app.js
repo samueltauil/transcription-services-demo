@@ -442,34 +442,48 @@ function displayEntities(entitiesByCategory) {
             const tag = document.createElement('span');
             tag.className = 'entity-tag';
             
-            // Build assertion badges - show all assertion information
+            // Build assertion badges based on Microsoft Text Analytics for Health
+            // Reference: https://learn.microsoft.com/en-us/azure/ai-services/language-service/text-analytics-for-health/concepts/assertion-detection
             let assertionHtml = '';
             if (entity.assertion) {
                 const certainty = entity.assertion.certainty;
                 const conditionality = entity.assertion.conditionality;
                 const association = entity.assertion.association;
+                const temporal = entity.assertion.temporal;
                 
-                // Certainty badges
+                // CERTAINTY - presence/absence of the concept
+                // Values: positive (default), negative, positive_possible, negative_possible, neutral_possible
                 if (certainty === 'negative') {
-                    assertionHtml += '<span class="assertion-badge negated" title="Certainty: Negative">Negated</span>';
-                } else if (certainty === 'negativePossible') {
-                    assertionHtml += '<span class="assertion-badge negated-possible" title="Certainty: Possibly Negative">Possibly Negated</span>';
-                } else if (certainty === 'positive') {
-                    assertionHtml += '<span class="assertion-badge affirmed" title="Certainty: Positive">Confirmed</span>';
-                } else if (certainty === 'neutralPossible') {
-                    assertionHtml += '<span class="assertion-badge uncertain" title="Certainty: Neutral/Possible">Possible</span>';
+                    assertionHtml += '<span class="assertion-badge negated" title="Certainty: Negative - concept does not exist">Negated</span>';
+                } else if (certainty === 'negative_possible' || certainty === 'negativePossible') {
+                    assertionHtml += '<span class="assertion-badge negated-possible" title="Certainty: Negative Possible - unlikely but uncertain">Possibly Absent</span>';
+                } else if (certainty === 'positive_possible' || certainty === 'positivePossible') {
+                    assertionHtml += '<span class="assertion-badge affirmed-possible" title="Certainty: Positive Possible - likely exists but uncertain">Likely Present</span>';
+                } else if (certainty === 'neutral_possible' || certainty === 'neutralPossible') {
+                    assertionHtml += '<span class="assertion-badge uncertain" title="Certainty: Neutral Possible - may or may not exist">Uncertain</span>';
                 }
+                // Note: positive is default, no badge needed
                 
-                // Conditionality badges
+                // CONDITIONALITY - whether existence depends on conditions
+                // Values: none (default), hypothetical, conditional
                 if (conditionality === 'hypothetical') {
-                    assertionHtml += '<span class="assertion-badge hypothetical" title="Conditionality: Hypothetical">Hypothetical</span>';
+                    assertionHtml += '<span class="assertion-badge hypothetical" title="Conditionality: Hypothetical - may develop in future">Hypothetical</span>';
                 } else if (conditionality === 'conditional') {
-                    assertionHtml += '<span class="assertion-badge conditional" title="Conditionality: Conditional">Conditional</span>';
+                    assertionHtml += '<span class="assertion-badge conditional" title="Conditionality: Conditional - exists only under certain conditions">Conditional</span>';
                 }
                 
-                // Association badges
+                // ASSOCIATION - who the concept is associated with
+                // Values: subject (default), other
                 if (association === 'other') {
-                    assertionHtml += '<span class="assertion-badge other-subject" title="Association: Other (e.g., family member)">Family/Other</span>';
+                    assertionHtml += '<span class="assertion-badge other-subject" title="Association: Other - associated with family member or other person">Family/Other</span>';
+                }
+                
+                // TEMPORAL - when the concept occurred
+                // Values: current (default), past, future
+                if (temporal === 'past') {
+                    assertionHtml += '<span class="assertion-badge temporal-past" title="Temporal: Past - prior to current encounter">Past</span>';
+                } else if (temporal === 'future') {
+                    assertionHtml += '<span class="assertion-badge temporal-future" title="Temporal: Future - planned/scheduled">Future</span>';
                 }
             }
             

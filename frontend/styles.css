@@ -910,6 +910,11 @@ footer a:hover {
     color: white;
 }
 
+.assertion-badge.affirmed-possible {
+    background: linear-gradient(135deg, #66bb6a, #81c784);
+    color: white;
+}
+
 .assertion-badge.affirmed {
     background: linear-gradient(135deg, #43a047, #2e7d32);
     color: white;
@@ -932,6 +937,16 @@ footer a:hover {
 
 .assertion-badge.other-subject {
     background: linear-gradient(135deg, #9c27b0, #7b1fa2);
+    color: white;
+}
+
+.assertion-badge.temporal-past {
+    background: linear-gradient(135deg, #795548, #5d4037);
+    color: white;
+}
+
+.assertion-badge.temporal-future {
+    background: linear-gradient(135deg, #00bcd4, #0097a7);
     color: white;
 }
 

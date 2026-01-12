@@ -211,11 +211,13 @@ def generate_fhir_bundle(medical_entities: dict) -> dict:
     }
     
     # Map certainty values to FHIR verification status
+    # Reference: https://learn.microsoft.com/en-us/azure/ai-services/language-service/text-analytics-for-health/concepts/assertion-detection
     certainty_to_status = {
         "positive": "confirmed",
+        "positive_possible": "provisional",
         "negative": "refuted",
-        "negativePossible": "refuted",
-        "neutralPossible": "provisional"
+        "negative_possible": "refuted",
+        "neutral_possible": "unconfirmed"
     }
     
     for idx, entity in enumerate(entities, 1):
@@ -285,52 +287,86 @@ def generate_fhir_bundle(medical_entities: dict) -> dict:
         })
         
         # Add assertion extensions with proper FHIR structure
+        # Reference: https://learn.microsoft.com/en-us/azure/ai-services/language-service/text-analytics-for-health/concepts/assertion-detection
         if assertion:
             certainty = assertion.get("certainty")
             conditionality = assertion.get("conditionality")
             association = assertion.get("association")
+            temporal = assertion.get("temporal")
             
+            # CERTAINTY: positive (default), negative, positive_possible, negative_possible, neutral_possible
             if certainty:
+                certainty_display = {
+                    "positive": "Confirmed - concept exists",
+                    "negative": "Negated - concept does not exist",
+                    "positive_possible": "Likely Present - probably exists but uncertain",
+                    "negative_possible": "Possibly Absent - unlikely but uncertain",
+                    "neutral_possible": "Uncertain - may or may not exist"
+                }
                 resource["extension"].append({
                     "url": "http://hl7.org/fhir/StructureDefinition/condition-assertedCertainty",
                     "valueCodeableConcept": {
                         "coding": [{
                             "system": "http://terminology.hl7.org/CodeSystem/certainty-type",
                             "code": certainty,
-                            "display": {
-                                "positive": "Confirmed/Affirmed",
-                                "negative": "Negated/Absent",
-                                "negativePossible": "Possibly Negated",
-                                "neutralPossible": "Uncertain/Possible"
-                            }.get(certainty, certainty)
+                            "display": certainty_display.get(certainty, certainty)
                         }],
                         "text": certainty
                     }
                 })
             
+            # CONDITIONALITY: none (default), hypothetical, conditional
             if conditionality:
+                conditionality_display = {
+                    "hypothetical": "Hypothetical - may develop in future",
+                    "conditional": "Conditional - exists only under certain conditions"
+                }
                 resource["extension"].append({
                     "url": "http://hl7.org/fhir/StructureDefinition/condition-conditionality",
                     "valueCodeableConcept": {
                         "coding": [{
                             "system": "http://terminology.hl7.org/CodeSystem/conditionality-type",
                             "code": conditionality,
-                            "display": "Hypothetical" if conditionality == "hypothetical" else "Conditional"
+                            "display": conditionality_display.get(conditionality, conditionality)
                         }],
                         "text": conditionality
                     }
                 })
             
+            # ASSOCIATION: subject (default), other
             if association:
+                association_display = {
+                    "subject": "Subject - associated with the patient",
+                    "other": "Other - associated with family member or other person"
+                }
                 resource["extension"].append({
                     "url": "http://hl7.org/fhir/StructureDefinition/condition-association",
                     "valueCodeableConcept": {
                         "coding": [{
                             "system": "http://terminology.hl7.org/CodeSystem/association-type",
                             "code": association,
-                            "display": "Other Subject (e.g., family member)" if association == "other" else association
+                            "display": association_display.get(association, association)
                         }],
                         "text": association
+                    }
+                })
+            
+            # TEMPORAL: current (default), past, future
+            if temporal:
+                temporal_display = {
+                    "current": "Current - related to current encounter",
+                    "past": "Past - prior to current encounter",
+                    "future": "Future - planned or scheduled"
+                }
+                resource["extension"].append({
+                    "url": "http://hl7.org/fhir/StructureDefinition/condition-temporal",
+                    "valueCodeableConcept": {
+                        "coding": [{
+                            "system": "http://terminology.hl7.org/CodeSystem/temporal-type",
+                            "code": temporal,
+                            "display": temporal_display.get(temporal, temporal)
+                        }],
+                        "text": temporal
                     }
                 })
             
