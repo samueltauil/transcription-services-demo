@@ -442,26 +442,34 @@ function displayEntities(entitiesByCategory) {
             const tag = document.createElement('span');
             tag.className = 'entity-tag';
             
-            // Build assertion badges
+            // Build assertion badges - show all assertion information
             let assertionHtml = '';
             if (entity.assertion) {
                 const certainty = entity.assertion.certainty;
                 const conditionality = entity.assertion.conditionality;
+                const association = entity.assertion.association;
                 
-                if (certainty === 'negative' || certainty === 'negativePossible') {
-                    assertionHtml += '<span class="assertion-badge negated">Negated</span>';
+                // Certainty badges
+                if (certainty === 'negative') {
+                    assertionHtml += '<span class="assertion-badge negated" title="Certainty: Negative">Negated</span>';
+                } else if (certainty === 'negativePossible') {
+                    assertionHtml += '<span class="assertion-badge negated-possible" title="Certainty: Possibly Negative">Possibly Negated</span>';
                 } else if (certainty === 'positive') {
-                    assertionHtml += '<span class="assertion-badge affirmed">Affirmed</span>';
+                    assertionHtml += '<span class="assertion-badge affirmed" title="Certainty: Positive">Confirmed</span>';
+                } else if (certainty === 'neutralPossible') {
+                    assertionHtml += '<span class="assertion-badge uncertain" title="Certainty: Neutral/Possible">Possible</span>';
                 }
                 
+                // Conditionality badges
                 if (conditionality === 'hypothetical') {
-                    assertionHtml += '<span class="assertion-badge hypothetical">Hypothetical</span>';
+                    assertionHtml += '<span class="assertion-badge hypothetical" title="Conditionality: Hypothetical">Hypothetical</span>';
                 } else if (conditionality === 'conditional') {
-                    assertionHtml += '<span class="assertion-badge conditional">Conditional</span>';
+                    assertionHtml += '<span class="assertion-badge conditional" title="Conditionality: Conditional">Conditional</span>';
                 }
                 
-                if (entity.assertion.association === 'other') {
-                    assertionHtml += '<span class="assertion-badge other-subject">Other Subject</span>';
+                // Association badges
+                if (association === 'other') {
+                    assertionHtml += '<span class="assertion-badge other-subject" title="Association: Other (e.g., family member)">Family/Other</span>';
                 }
             }
             

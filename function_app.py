@@ -176,117 +176,276 @@ def is_supported_format(filename: str) -> bool:
 # ============================================================================
 
 def generate_fhir_bundle(medical_entities: dict) -> dict:
-    """Generate a FHIR-compatible bundle from extracted medical entities"""
+    """Generate a comprehensive FHIR R4 bundle from extracted medical entities"""
     if not medical_entities:
         return {"resourceType": "Bundle", "type": "collection", "total": 0, "entry": []}
     
     entities = medical_entities.get("entities", [])
+    relations = medical_entities.get("relations", [])
+    summary = medical_entities.get("summary", {})
+    diarization = medical_entities.get("diarization", {})
     fhir_resources = []
     
     # Map all Text Analytics for Health categories to FHIR resource types
-    # Reference: https://learn.microsoft.com/azure/ai-services/language-service/text-analytics-for-health/concepts/health-entity-categories
     category_to_fhir = {
-        # Anatomy
         "BodyStructure": "BodyStructure",
-        
-        # Demographics
-        "Age": "Observation",
-        "Ethnicity": "Observation",
-        "Gender": "Patient",
-        
-        # Examinations
-        "ExaminationName": "Procedure",
-        
-        # External Influence
+        "Age": "Observation", "Ethnicity": "Observation", "Gender": "Patient",
+        "ExaminationName": "DiagnosticReport",
         "Allergen": "AllergyIntolerance",
-        
-        # General Attributes
-        "Course": "Observation",
-        "Date": "Observation",
-        "Direction": "Observation",
-        "Frequency": "Observation",
-        "Time": "Observation",
-        "MeasurementUnit": "Observation",
-        "MeasurementValue": "Observation",
-        "RelationalOperator": "Observation",
-        
-        # Genomics
-        "Variant": "Observation",
-        "GeneOrProtein": "Observation",
-        "MutationType": "Observation",
-        "Expression": "Observation",
-        
-        # Healthcare
-        "AdministrativeEvent": "Encounter",
-        "CareEnvironment": "Location",
+        "Course": "Observation", "Date": "Observation", "Direction": "Observation",
+        "Frequency": "Observation", "Time": "Observation", "MeasurementUnit": "Observation",
+        "MeasurementValue": "Observation", "RelationalOperator": "Observation",
+        "Variant": "Observation", "GeneOrProtein": "Observation",
+        "MutationType": "Observation", "Expression": "Observation",
+        "AdministrativeEvent": "Encounter", "CareEnvironment": "Location",
         "HealthcareProfession": "Practitioner",
-        
-        # Medical Condition
-        "Diagnosis": "Condition",
-        "SymptomOrSign": "Observation",
-        "ConditionQualifier": "Observation",
-        "ConditionScale": "Observation",
-        
-        # Medication
-        "MedicationClass": "Medication",
-        "MedicationName": "Medication",
-        "Dosage": "MedicationStatement",
-        "MedicationForm": "Medication",
+        "Diagnosis": "Condition", "SymptomOrSign": "Observation",
+        "ConditionQualifier": "Observation", "ConditionScale": "Observation",
+        "MedicationClass": "Medication", "MedicationName": "MedicationStatement",
+        "Dosage": "MedicationStatement", "MedicationForm": "Medication",
         "MedicationRoute": "MedicationStatement",
-        
-        # Social
         "FamilyRelation": "FamilyMemberHistory",
-        "Employment": "Observation",
-        "LivingStatus": "Observation",
-        "SubstanceUse": "Observation",
-        "SubstanceUseAmount": "Observation",
-        
-        # Treatment
+        "Employment": "Observation", "LivingStatus": "Observation",
+        "SubstanceUse": "Observation", "SubstanceUseAmount": "Observation",
         "TreatmentName": "Procedure",
+    }
+    
+    # Map certainty values to FHIR verification status
+    certainty_to_status = {
+        "positive": "confirmed",
+        "negative": "refuted",
+        "negativePossible": "refuted",
+        "neutralPossible": "provisional"
     }
     
     for idx, entity in enumerate(entities, 1):
         category = entity.get("category", "")
         fhir_type = category_to_fhir.get(category, "Observation")
+        assertion = entity.get("assertion", {})
+        links = entity.get("links", [])
+        
+        # Build coding array from entity links
+        coding = []
+        for link in links:
+            data_source = link.get("dataSource", "")
+            code_id = link.get("id", "")
+            # Map data sources to FHIR system URIs
+            system_map = {
+                "UMLS": "http://terminology.hl7.org/CodeSystem/umls",
+                "SNOMEDCT_US": "http://snomed.info/sct",
+                "ICD10CM": "http://hl7.org/fhir/sid/icd-10-cm",
+                "ICD9CM": "http://hl7.org/fhir/sid/icd-9-cm",
+                "RXNORM": "http://www.nlm.nih.gov/research/umls/rxnorm",
+                "MSH": "http://id.nlm.nih.gov/mesh",
+                "NCI": "http://ncicb.nci.nih.gov/xml/owl/EVS/Thesaurus.owl",
+                "HPO": "http://purl.obolibrary.org/obo/hp.owl"
+            }
+            if data_source in system_map:
+                coding.append({
+                    "system": system_map[data_source],
+                    "code": code_id,
+                    "display": entity.get("text", "")
+                })
         
         resource = {
             "resourceType": fhir_type,
-            "id": f"resource-{idx}",
+            "id": f"entity-{idx}",
+            "meta": {
+                "profile": [f"http://hl7.org/fhir/StructureDefinition/{fhir_type}"],
+                "source": "azure-text-analytics-for-health",
+                "tag": [{"system": "http://terminology.hl7.org/CodeSystem/v3-ObservationValue", "code": "SUBSETTED"}]
+            },
             "text": {
                 "status": "generated",
-                "div": f"<div xmlns=\"http://www.w3.org/1999/xhtml\">{entity.get('text', '')}</div>"
+                "div": f"<div xmlns=\"http://www.w3.org/1999/xhtml\"><p><b>{category}</b>: {entity.get('text', '')}</p></div>"
             },
             "code": {
                 "text": entity.get("text", ""),
-                "coding": []
+                "coding": coding if coding else None
             },
-            "meta": {
-                "source": "text-analytics-for-health",
-                "confidence": entity.get("confidence_score", 0)
-            }
+            "extension": []
         }
         
-        # Add data source codes if available
-        for ds in entity.get("data_sources", []):
-            resource["code"]["coding"].append({
-                "system": ds.get("name", ""),
-                "code": ds.get("entity_id", "")
-            })
+        # Add confidence score extension
+        resource["extension"].append({
+            "url": "http://hl7.org/fhir/StructureDefinition/confidence",
+            "valueDecimal": round(entity.get("confidence_score", 0), 4)
+        })
         
-        # Add assertion information
-        if entity.get("assertion"):
-            resource["extension"] = [{
-                "url": "http://hl7.org/fhir/StructureDefinition/assertion",
-                "valueString": str(entity["assertion"])
-            }]
+        # Add category extension
+        resource["extension"].append({
+            "url": "http://hl7.org/fhir/StructureDefinition/text-analytics-category",
+            "valueString": category
+        })
+        
+        # Add text position extension
+        resource["extension"].append({
+            "url": "http://hl7.org/fhir/StructureDefinition/text-offset",
+            "valueInteger": entity.get("offset", 0)
+        })
+        
+        # Add assertion extensions with proper FHIR structure
+        if assertion:
+            certainty = assertion.get("certainty")
+            conditionality = assertion.get("conditionality")
+            association = assertion.get("association")
+            
+            if certainty:
+                resource["extension"].append({
+                    "url": "http://hl7.org/fhir/StructureDefinition/condition-assertedCertainty",
+                    "valueCodeableConcept": {
+                        "coding": [{
+                            "system": "http://terminology.hl7.org/CodeSystem/certainty-type",
+                            "code": certainty,
+                            "display": {
+                                "positive": "Confirmed/Affirmed",
+                                "negative": "Negated/Absent",
+                                "negativePossible": "Possibly Negated",
+                                "neutralPossible": "Uncertain/Possible"
+                            }.get(certainty, certainty)
+                        }],
+                        "text": certainty
+                    }
+                })
+            
+            if conditionality:
+                resource["extension"].append({
+                    "url": "http://hl7.org/fhir/StructureDefinition/condition-conditionality",
+                    "valueCodeableConcept": {
+                        "coding": [{
+                            "system": "http://terminology.hl7.org/CodeSystem/conditionality-type",
+                            "code": conditionality,
+                            "display": "Hypothetical" if conditionality == "hypothetical" else "Conditional"
+                        }],
+                        "text": conditionality
+                    }
+                })
+            
+            if association:
+                resource["extension"].append({
+                    "url": "http://hl7.org/fhir/StructureDefinition/condition-association",
+                    "valueCodeableConcept": {
+                        "coding": [{
+                            "system": "http://terminology.hl7.org/CodeSystem/association-type",
+                            "code": association,
+                            "display": "Other Subject (e.g., family member)" if association == "other" else association
+                        }],
+                        "text": association
+                    }
+                })
+            
+            # Set verification status for Condition resources
+            if fhir_type == "Condition" and certainty:
+                resource["verificationStatus"] = {
+                    "coding": [{
+                        "system": "http://terminology.hl7.org/CodeSystem/condition-ver-status",
+                        "code": certainty_to_status.get(certainty, "unconfirmed")
+                    }]
+                }
+        
+        # Remove empty extensions
+        if not resource["extension"]:
+            del resource["extension"]
+        # Remove empty coding
+        if resource["code"]["coding"] is None:
+            del resource["code"]["coding"]
         
         fhir_resources.append({
-            "fullUrl": f"urn:uuid:resource-{idx}",
+            "fullUrl": f"urn:uuid:entity-{idx}",
             "resource": resource
+        })
+    
+    # Add relations as Observation resources with references
+    for rel_idx, relation in enumerate(relations, 1):
+        rel_type = relation.get("relationType", "Unknown")
+        source = relation.get("source", {})
+        target = relation.get("target", {})
+        
+        relation_resource = {
+            "resourceType": "Observation",
+            "id": f"relation-{rel_idx}",
+            "meta": {
+                "profile": ["http://hl7.org/fhir/StructureDefinition/Observation"],
+                "source": "azure-text-analytics-for-health"
+            },
+            "status": "final",
+            "category": [{
+                "coding": [{
+                    "system": "http://terminology.hl7.org/CodeSystem/observation-category",
+                    "code": "clinical-relationship",
+                    "display": "Clinical Relationship"
+                }]
+            }],
+            "code": {
+                "coding": [{
+                    "system": "http://terminology.hl7.org/CodeSystem/relation-type",
+                    "code": rel_type,
+                    "display": rel_type.replace("Of", " of ").replace("For", " for ")
+                }],
+                "text": f"{rel_type}: {source.get('text', '')} → {target.get('text', '')}"
+            },
+            "component": [
+                {
+                    "code": {"text": "source"},
+                    "valueString": source.get("text", "")
+                },
+                {
+                    "code": {"text": "target"},
+                    "valueString": target.get("text", "")
+                }
+            ],
+            "extension": [{
+                "url": "http://hl7.org/fhir/StructureDefinition/confidence",
+                "valueDecimal": round(relation.get("confidence_score", 0), 4)
+            }]
+        }
+        
+        fhir_resources.append({
+            "fullUrl": f"urn:uuid:relation-{rel_idx}",
+            "resource": relation_resource
+        })
+    
+    # Add summary as DocumentReference
+    if summary:
+        summary_resource = {
+            "resourceType": "DocumentReference",
+            "id": "analysis-summary",
+            "meta": {"source": "azure-text-analytics-for-health"},
+            "status": "current",
+            "type": {"text": "Healthcare Transcription Analysis Summary"},
+            "description": "Summary of medical entity extraction from transcribed audio",
+            "content": [{
+                "attachment": {
+                    "contentType": "application/json",
+                    "data": None
+                }
+            }],
+            "extension": [
+                {"url": "total-entities", "valueInteger": summary.get("total_entities", 0)},
+                {"url": "total-relations", "valueInteger": summary.get("total_relations", 0)},
+                {"url": "speaker-count", "valueInteger": summary.get("speaker_count", 0)},
+                {"url": "linked-entities", "valueInteger": summary.get("linked_entities", 0)},
+                {"url": "categories", "valueString": ", ".join(summary.get("categories", []))}
+            ]
+        }
+        if summary.get("assertions"):
+            for key, val in summary["assertions"].items():
+                summary_resource["extension"].append({
+                    "url": f"assertion-{key}",
+                    "valueInteger": val
+                })
+        fhir_resources.append({
+            "fullUrl": "urn:uuid:analysis-summary",
+            "resource": summary_resource
         })
     
     return {
         "resourceType": "Bundle",
+        "id": f"transcription-analysis-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}",
+        "meta": {
+            "lastUpdated": datetime.utcnow().isoformat() + "Z",
+            "source": "azure-healthcare-transcription-service"
+        },
         "type": "collection",
         "total": len(fhir_resources),
         "entry": fhir_resources

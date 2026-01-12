@@ -905,8 +905,18 @@ footer a:hover {
     color: white;
 }
 
+.assertion-badge.negated-possible {
+    background: linear-gradient(135deg, #ef5350, #e57373);
+    color: white;
+}
+
 .assertion-badge.affirmed {
     background: linear-gradient(135deg, #43a047, #2e7d32);
+    color: white;
+}
+
+.assertion-badge.uncertain {
+    background: linear-gradient(135deg, #78909c, #607d8b);
     color: white;
 }
 
