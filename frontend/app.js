@@ -331,6 +331,8 @@ async function loadResults() {
         const response = await fetch(`${API_BASE_URL}/results/${currentJobId}`);
         const data = await response.json();
         
+        console.log('Results loaded:', data);
+        
         resultsSection.style.display = 'block';
         
         // Calculate and display cost savings based on audio duration
@@ -339,27 +341,17 @@ async function loadResults() {
         // Update summary cards
         document.getElementById('processingTime').textContent = 
             data.processing_time_seconds ? `${data.processing_time_seconds.toFixed(1)}s` : '-';
-        document.getElementById('wordCount').textContent = 
-            data.transcription?.word_count || '-';
+        document.getElementById('speakerCount').textContent = 
+            data.medical_analysis?.summary?.speaker_count || data.medical_analysis?.diarization?.speaker_count || '1';
         document.getElementById('entityCount').textContent = 
             data.medical_analysis?.summary?.total_entities || '-';
         document.getElementById('relationCount').textContent = 
             data.medical_analysis?.summary?.total_relations || '-';
         
-        // Update speaker count if available
-        const speakerCountEl = document.getElementById('speakerCount');
-        if (speakerCountEl) {
-            speakerCountEl.textContent = data.medical_analysis?.summary?.speaker_count || '-';
-        }
-        
-        // Update assertion stats if available
+        // Update assertion stats
         const assertionStats = data.medical_analysis?.summary?.assertions;
-        if (assertionStats) {
-            const negatedEl = document.getElementById('negatedCount');
-            const linkedEl = document.getElementById('linkedCount');
-            if (negatedEl) negatedEl.textContent = assertionStats.negated || '0';
-            if (linkedEl) linkedEl.textContent = data.medical_analysis?.summary?.linked_entities || '0';
-        }
+        document.getElementById('negatedCount').textContent = assertionStats?.negated || '0';
+        document.getElementById('linkedCount').textContent = data.medical_analysis?.summary?.linked_entities || '0';
         
         // Display transcription with optional diarization
         const diarization = data.medical_analysis?.diarization;
