@@ -935,11 +935,24 @@ def get_results(req: func.HttpRequest) -> func.HttpResponse:
     try:
         config = AzureConfig.from_environment()
         container = get_cosmos_client(config)
-        job_data = container.read_item(item=job_id, partition_key=job_id)
+        
+        # Try to read the job from Cosmos DB
+        try:
+            job_data = container.read_item(item=job_id, partition_key=job_id)
+        except Exception as cosmos_err:
+            logger.error(f"Cosmos DB read error for job {job_id}: {cosmos_err}")
+            return func.HttpResponse(json.dumps({"error": f"Job not found: {job_id}"}), status_code=404, mimetype="application/json")
+        
         job = TranscriptionJob.from_dict(job_data)
         
-        # Generate FHIR bundle from entities
-        fhir_bundle = generate_fhir_bundle(job.medical_entities) if job.medical_entities else None
+        # Generate FHIR bundle from entities (with error handling)
+        fhir_bundle = None
+        try:
+            if job.medical_entities:
+                fhir_bundle = generate_fhir_bundle(job.medical_entities)
+        except Exception as fhir_err:
+            logger.error(f"FHIR generation error for job {job_id}: {fhir_err}")
+            # Continue without FHIR - don't fail the whole request
         
         result = {
             "job_id": job.id, "filename": job.filename, "status": job.status,
@@ -952,7 +965,8 @@ def get_results(req: func.HttpRequest) -> func.HttpResponse:
         }
         return func.HttpResponse(json.dumps(result, indent=2), status_code=200, mimetype="application/json")
     except Exception as e:
-        return func.HttpResponse(json.dumps({"error": f"Job not found: {job_id}"}), status_code=404, mimetype="application/json")
+        logger.error(f"Results endpoint error for job {job_id}: {e}")
+        return func.HttpResponse(json.dumps({"error": f"Server error: {str(e)}"}), status_code=500, mimetype="application/json")
 
 
 @app.route(route="jobs", methods=["GET"])
