@@ -988,11 +988,14 @@ def get_results(req: func.HttpRequest) -> func.HttpResponse:
         
         # Generate FHIR bundle from entities (with error handling)
         fhir_bundle = None
+        fhir_error = None
         try:
             if job.medical_entities:
                 fhir_bundle = generate_fhir_bundle(job.medical_entities)
         except Exception as fhir_err:
-            logger.error(f"FHIR generation error for job {job_id}: {fhir_err}")
+            import traceback
+            fhir_error = f"{str(fhir_err)} - {traceback.format_exc()}"
+            logger.error(f"FHIR generation error for job {job_id}: {fhir_error}")
             # Continue without FHIR - don't fail the whole request
         
         result = {
@@ -1002,6 +1005,7 @@ def get_results(req: func.HttpRequest) -> func.HttpResponse:
             "transcription": {"text": job.transcription_text, "word_count": len(job.transcription_text.split()) if job.transcription_text else 0},
             "medical_analysis": job.medical_entities,
             "fhir_bundle": fhir_bundle,
+            "fhir_error": fhir_error,  # Include error for debugging
             "error_message": job.error_message
         }
         return func.HttpResponse(json.dumps(result, indent=2), status_code=200, mimetype="application/json")
