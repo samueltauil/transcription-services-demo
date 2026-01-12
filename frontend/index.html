@@ -134,17 +134,55 @@
                     </div>
                     <div class="summary-card">
                         <div class="card-icon">
-                            <svg viewBox="0 0 24 24" width="24" height="24" fill="#e53935"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
-                        </div>
-                        <div class="card-value" id="negatedCount">-</div>
-                        <div class="card-label">Negated Findings</div>
-                    </div>
-                    <div class="summary-card">
-                        <div class="card-icon">
                             <svg viewBox="0 0 24 24" width="24" height="24" fill="#43a047"><path d="M3.9 12c0-1.71 1.39-3.1 3.1-3.1h4V7H7c-2.76 0-5 2.24-5 5s2.24 5 5 5h4v-1.9H7c-1.71 0-3.1-1.39-3.1-3.1zM8 13h8v-2H8v2zm9-6h-4v1.9h4c1.71 0 3.1 1.39 3.1 3.1s-1.39 3.1-3.1 3.1h-4V17h4c2.76 0 5-2.24 5-5s-2.24-5-5-5z"/></svg>
                         </div>
                         <div class="card-value" id="linkedCount">-</div>
                         <div class="card-label">Linked to UMLS</div>
+                    </div>
+                </div>
+                
+                <!-- Assertion Detection Summary -->
+                <div class="assertion-summary-bar" id="assertionSummaryBar" style="display: none;">
+                    <div class="assertion-summary-title">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
+                        Assertion Detection
+                    </div>
+                    <div class="assertion-chips">
+                        <div class="assertion-chip negated" id="chipNegated" style="display: none;">
+                            <span class="chip-icon">✗</span>
+                            <span class="chip-count" id="negatedCount">0</span>
+                            <span class="chip-label">Negated</span>
+                        </div>
+                        <div class="assertion-chip hypothetical" id="chipHypothetical" style="display: none;">
+                            <span class="chip-icon">⚡</span>
+                            <span class="chip-count" id="hypotheticalCount">0</span>
+                            <span class="chip-label">Hypothetical</span>
+                        </div>
+                        <div class="assertion-chip conditional" id="chipConditional" style="display: none;">
+                            <span class="chip-icon">↔</span>
+                            <span class="chip-count" id="conditionalCount">0</span>
+                            <span class="chip-label">Conditional</span>
+                        </div>
+                        <div class="assertion-chip other-subject" id="chipOtherSubject" style="display: none;">
+                            <span class="chip-icon">👤</span>
+                            <span class="chip-count" id="otherSubjectCount">0</span>
+                            <span class="chip-label">Other Person</span>
+                        </div>
+                        <div class="assertion-chip temporal-past" id="chipTemporalPast" style="display: none;">
+                            <span class="chip-icon">◄</span>
+                            <span class="chip-count" id="temporalPastCount">0</span>
+                            <span class="chip-label">Past</span>
+                        </div>
+                        <div class="assertion-chip temporal-future" id="chipTemporalFuture" style="display: none;">
+                            <span class="chip-icon">►</span>
+                            <span class="chip-count" id="temporalFutureCount">0</span>
+                            <span class="chip-label">Future</span>
+                        </div>
+                        <div class="assertion-chip uncertain" id="chipUncertain" style="display: none;">
+                            <span class="chip-icon">?</span>
+                            <span class="chip-count" id="uncertainCount">0</span>
+                            <span class="chip-label">Uncertain</span>
+                        </div>
                     </div>
                 </div>
 

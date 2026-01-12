@@ -880,7 +880,16 @@ def process_transcription(req: func.HttpRequest) -> func.HttpResponse:
             entities_by_category[cat].append(e)
         
         # Count assertions and linked entities
-        assertion_counts = {"negated": 0, "conditional": 0, "hypothetical": 0, "affirmed": 0}
+        assertion_counts = {
+            "negated": 0, 
+            "conditional": 0, 
+            "hypothetical": 0, 
+            "affirmed": 0,
+            "other_subject": 0,
+            "temporal_past": 0,
+            "temporal_future": 0,
+            "uncertain": 0
+        }
         linked_entities_count = 0
         for entity in health_results.get("entities", []):
             if entity.get("links"):
@@ -888,15 +897,28 @@ def process_transcription(req: func.HttpRequest) -> func.HttpResponse:
             assertion = entity.get("assertion")
             if assertion:
                 certainty = assertion.get("certainty", "")
-                if certainty in ("negative", "negativePossible"):
+                if certainty in ("negative", "negative_possible", "negativePossible"):
                     assertion_counts["negated"] += 1
                 elif certainty == "positive":
                     assertion_counts["affirmed"] += 1
+                elif certainty in ("positive_possible", "positivePossible", "neutral_possible", "neutralPossible"):
+                    assertion_counts["uncertain"] += 1
+                    
                 conditionality = assertion.get("conditionality", "")
                 if conditionality == "hypothetical":
                     assertion_counts["hypothetical"] += 1
                 elif conditionality == "conditional":
                     assertion_counts["conditional"] += 1
+                    
+                association = assertion.get("association", "")
+                if association == "other":
+                    assertion_counts["other_subject"] += 1
+                    
+                temporal = assertion.get("temporal", "")
+                if temporal == "past":
+                    assertion_counts["temporal_past"] += 1
+                elif temporal == "future":
+                    assertion_counts["temporal_future"] += 1
         
         # Calculate summary
         total_entities = len(health_results.get("entities", []))

@@ -342,7 +342,7 @@ header h1 {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
     gap: 1rem;
-    margin-bottom: 2rem;
+    margin-bottom: 1rem;
 }
 
 .summary-card {
@@ -370,6 +370,103 @@ header h1 {
 .card-label {
     color: var(--text-secondary);
     font-size: 0.8rem;
+}
+
+/* Assertion Summary Bar */
+.assertion-summary-bar {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.75rem 1rem;
+    background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 1.5rem;
+    flex-wrap: wrap;
+}
+
+.assertion-summary-title {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.assertion-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    flex: 1;
+}
+
+.assertion-chip {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.375rem 0.625rem;
+    border-radius: 20px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    transition: var(--transition);
+}
+
+.assertion-chip .chip-icon {
+    font-size: 0.875rem;
+}
+
+.assertion-chip .chip-count {
+    font-weight: 700;
+    font-size: 0.875rem;
+}
+
+.assertion-chip .chip-label {
+    font-weight: 500;
+}
+
+/* Assertion chip color variants */
+.assertion-chip.negated {
+    background: #fee2e2;
+    color: #991b1b;
+    border: 1px solid #fca5a5;
+}
+
+.assertion-chip.hypothetical {
+    background: #fef3c7;
+    color: #92400e;
+    border: 1px solid #fcd34d;
+}
+
+.assertion-chip.conditional {
+    background: #dbeafe;
+    color: #1e40af;
+    border: 1px solid #93c5fd;
+}
+
+.assertion-chip.other-subject {
+    background: #f3e8ff;
+    color: #6b21a8;
+    border: 1px solid #d8b4fe;
+}
+
+.assertion-chip.temporal-past {
+    background: #fef3c7;
+    color: #78350f;
+    border: 1px solid #fcd34d;
+}
+
+.assertion-chip.temporal-future {
+    background: #cffafe;
+    color: #0e7490;
+    border: 1px solid #67e8f9;
+}
+
+.assertion-chip.uncertain {
+    background: #f3f4f6;
+    color: #4b5563;
+    border: 1px solid #d1d5db;
 }
 
 /* Tabs */

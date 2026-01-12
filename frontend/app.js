@@ -347,11 +347,12 @@ async function loadResults() {
             data.medical_analysis?.summary?.total_entities || '-';
         document.getElementById('relationCount').textContent = 
             data.medical_analysis?.summary?.total_relations || '-';
+        document.getElementById('linkedCount').textContent = 
+            data.medical_analysis?.summary?.linked_entities || '0';
         
-        // Update assertion stats
+        // Update assertion detection chips
         const assertionStats = data.medical_analysis?.summary?.assertions;
-        document.getElementById('negatedCount').textContent = assertionStats?.negated || '0';
-        document.getElementById('linkedCount').textContent = data.medical_analysis?.summary?.linked_entities || '0';
+        updateAssertionChips(assertionStats);
         
         // Display transcription with optional diarization
         const diarization = data.medical_analysis?.diarization;
@@ -392,6 +393,52 @@ async function loadResults() {
     } catch (error) {
         console.error('Failed to load results:', error);
     }
+}
+
+/**
+ * Update assertion detection chips based on analysis results
+ */
+function updateAssertionChips(assertionStats) {
+    const summaryBar = document.getElementById('assertionSummaryBar');
+    
+    if (!assertionStats) {
+        summaryBar.style.display = 'none';
+        return;
+    }
+    
+    // Check if any assertions exist
+    const hasAssertions = Object.values(assertionStats).some(v => v > 0);
+    
+    if (!hasAssertions) {
+        summaryBar.style.display = 'none';
+        return;
+    }
+    
+    summaryBar.style.display = 'flex';
+    
+    // Update each chip - show only if count > 0
+    const chipConfigs = [
+        { id: 'chipNegated', countId: 'negatedCount', key: 'negated' },
+        { id: 'chipHypothetical', countId: 'hypotheticalCount', key: 'hypothetical' },
+        { id: 'chipConditional', countId: 'conditionalCount', key: 'conditional' },
+        { id: 'chipOtherSubject', countId: 'otherSubjectCount', key: 'other_subject' },
+        { id: 'chipTemporalPast', countId: 'temporalPastCount', key: 'temporal_past' },
+        { id: 'chipTemporalFuture', countId: 'temporalFutureCount', key: 'temporal_future' },
+        { id: 'chipUncertain', countId: 'uncertainCount', key: 'uncertain' }
+    ];
+    
+    chipConfigs.forEach(config => {
+        const chip = document.getElementById(config.id);
+        const countEl = document.getElementById(config.countId);
+        const count = assertionStats[config.key] || 0;
+        
+        if (count > 0) {
+            chip.style.display = 'flex';
+            countEl.textContent = count;
+        } else {
+            chip.style.display = 'none';
+        }
+    });
 }
 
 /**
