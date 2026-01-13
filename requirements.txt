@@ -9,3 +9,7 @@ requests
 
 # Data processing (lightweight)
 python-dotenv
+
+# PDF generation for clinical summaries
+fpdf2
+markdown

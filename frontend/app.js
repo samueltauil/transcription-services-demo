@@ -1044,17 +1044,22 @@ async function loadSummary(regenerate = false) {
 function displaySummary(data) {
     const contentEl = document.getElementById('summaryContent');
     const errorEl = document.getElementById('summaryError');
+    const pdfBtn = document.getElementById('downloadPdf');
     
     errorEl.style.display = 'none';
     
     if (!data.summary_text) {
         contentEl.innerHTML = '<p class="placeholder">No summary available. Click "Regenerate" to generate one.</p>';
+        if (pdfBtn) pdfBtn.disabled = true;
         return;
     }
     
     // Parse and format the markdown-style summary
     const formattedSummary = formatSummaryText(data.summary_text);
     contentEl.innerHTML = formattedSummary;
+    
+    // Enable PDF download button
+    if (pdfBtn) pdfBtn.disabled = false;
     
     // Update metadata
     const cachedBadge = document.getElementById('cachedBadge');
@@ -1163,13 +1168,152 @@ function handleRegenerateClick() {
 }
 
 /**
+ * Download summary as PDF
+ */
+async function downloadSummaryPdf() {
+    if (!currentJobId) {
+        console.warn('No job ID available for PDF download');
+        return;
+    }
+    
+    const pdfBtn = document.getElementById('downloadPdf');
+    const pdfToast = document.getElementById('pdfToast');
+    
+    // Disable button during download
+    if (pdfBtn) {
+        pdfBtn.disabled = true;
+        pdfBtn.querySelector('.btn-text').textContent = 'Generating...';
+    }
+    
+    try {
+        const response = await fetch(`${API_BASE_URL}/summary/${currentJobId}/pdf`);
+        
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || `HTTP ${response.status}`);
+        }
+        
+        // Get the PDF blob
+        const blob = await response.blob();
+        
+        // Extract filename from Content-Disposition header or use default
+        const contentDisposition = response.headers.get('Content-Disposition');
+        let filename = `clinical-summary-${currentJobId}.pdf`;
+        if (contentDisposition) {
+            const match = contentDisposition.match(/filename="(.+?)"/);
+            if (match) filename = match[1];
+        }
+        
+        // Trigger download
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        
+        console.log('PDF downloaded successfully');
+        
+    } catch (error) {
+        console.error('PDF download failed:', error);
+        
+        // Show error toast with fallback option
+        if (pdfToast) {
+            document.getElementById('pdfToastMessage').textContent = error.message || 'PDF generation failed';
+            pdfToast.style.display = 'flex';
+        }
+    } finally {
+        // Re-enable button
+        if (pdfBtn) {
+            pdfBtn.disabled = false;
+            pdfBtn.querySelector('.btn-text').textContent = 'Download PDF';
+        }
+    }
+}
+
+/**
+ * Download summary as plain text (fallback)
+ */
+async function downloadSummaryTxt() {
+    if (!currentJobId) {
+        console.warn('No job ID available for text download');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`${API_BASE_URL}/summary/${currentJobId}/txt`);
+        
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || `HTTP ${response.status}`);
+        }
+        
+        const text = await response.text();
+        
+        // Extract filename from Content-Disposition header or use default
+        const contentDisposition = response.headers.get('Content-Disposition');
+        let filename = `clinical-summary-${currentJobId}.txt`;
+        if (contentDisposition) {
+            const match = contentDisposition.match(/filename="(.+?)"/);
+            if (match) filename = match[1];
+        }
+        
+        // Trigger download
+        const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        
+        // Hide toast
+        const pdfToast = document.getElementById('pdfToast');
+        if (pdfToast) pdfToast.style.display = 'none';
+        
+        console.log('Text file downloaded successfully');
+        
+    } catch (error) {
+        console.error('Text download failed:', error);
+        alert('Failed to download text file: ' + error.message);
+    }
+}
+
+/**
+ * Dismiss PDF error toast
+ */
+function dismissPdfToast() {
+    const pdfToast = document.getElementById('pdfToast');
+    if (pdfToast) pdfToast.style.display = 'none';
+}
+
+/**
  * Initialize summary tab functionality
  */
 function initializeSummary() {
     const regenerateBtn = document.getElementById('regenerateSummary');
+    const pdfBtn = document.getElementById('downloadPdf');
+    const txtFallbackBtn = document.getElementById('downloadTxtFallback');
+    const dismissToastBtn = document.getElementById('dismissToast');
     
     if (regenerateBtn) {
         regenerateBtn.addEventListener('click', handleRegenerateClick);
+    }
+    
+    if (pdfBtn) {
+        pdfBtn.addEventListener('click', downloadSummaryPdf);
+    }
+    
+    if (txtFallbackBtn) {
+        txtFallbackBtn.addEventListener('click', downloadSummaryTxt);
+    }
+    
+    if (dismissToastBtn) {
+        dismissToastBtn.addEventListener('click', dismissPdfToast);
     }
 }
 

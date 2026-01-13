@@ -1365,6 +1365,141 @@ def get_summary(req: func.HttpRequest) -> func.HttpResponse:
         return func.HttpResponse(json.dumps({"error": f"Server error: {str(e)}"}), status_code=500, mimetype="application/json")
 
 
+@app.route(route="summary/{job_id}/pdf", methods=["GET"])
+def get_summary_pdf(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Generate and return a PDF of the AI clinical summary
+    Returns 404 if no cached summary exists (user must generate summary first)
+    Returns 500 with fallback_available=true if PDF generation fails
+    """
+    job_id = req.route_params.get('job_id')
+    
+    try:
+        config = AzureConfig.from_environment()
+        container = get_cosmos_client(config)
+        
+        # Get job from Cosmos DB
+        try:
+            job_data = container.read_item(item=job_id, partition_key=job_id)
+        except Exception as cosmos_err:
+            logger.error(f"Cosmos DB read error for job {job_id}: {cosmos_err}")
+            return func.HttpResponse(
+                json.dumps({"error": f"Job not found: {job_id}"}),
+                status_code=404, mimetype="application/json"
+            )
+        
+        job = TranscriptionJob.from_dict(job_data)
+        
+        # Check if summary exists
+        if not job.llm_summary or not job.llm_summary.get('summary_text'):
+            return func.HttpResponse(
+                json.dumps({"error": "No summary available. Generate a summary first."}),
+                status_code=404, mimetype="application/json"
+            )
+        
+        # Prepare metadata for PDF
+        pdf_metadata = {
+            'filename': job.filename,
+            'generated_at': job.llm_summary.get('generated_at'),
+            'model': job.llm_summary.get('model', 'GPT-4o-mini'),
+            'token_usage': job.llm_summary.get('token_usage', {})
+        }
+        
+        # Generate PDF
+        try:
+            from pdf_generator import generate_summary_pdf
+            pdf_bytes = generate_summary_pdf(
+                summary_text=job.llm_summary['summary_text'],
+                job_metadata=pdf_metadata
+            )
+            
+            # Create safe filename
+            safe_filename = ''.join(c for c in job.filename if c.isalnum() or c in '._- ')[:50]
+            pdf_filename = f"clinical-summary-{safe_filename}.pdf"
+            
+            return func.HttpResponse(
+                pdf_bytes,
+                status_code=200,
+                mimetype="application/pdf",
+                headers={
+                    "Content-Disposition": f'attachment; filename="{pdf_filename}"',
+                    "Content-Length": str(len(pdf_bytes))
+                }
+            )
+            
+        except Exception as pdf_err:
+            logger.error(f"PDF generation failed for job {job_id}: {pdf_err}")
+            return func.HttpResponse(
+                json.dumps({
+                    "error": f"PDF generation failed: {str(pdf_err)}",
+                    "fallback_available": True
+                }),
+                status_code=500, mimetype="application/json"
+            )
+    
+    except Exception as e:
+        import traceback
+        logger.error(f"PDF endpoint error for job {job_id}: {e} - {traceback.format_exc()}")
+        return func.HttpResponse(
+            json.dumps({"error": f"Server error: {str(e)}", "fallback_available": True}),
+            status_code=500, mimetype="application/json"
+        )
+
+
+@app.route(route="summary/{job_id}/txt", methods=["GET"])
+def get_summary_txt(req: func.HttpRequest) -> func.HttpResponse:
+    """
+    Return the raw summary text as plain text (fallback when PDF fails)
+    """
+    job_id = req.route_params.get('job_id')
+    
+    try:
+        config = AzureConfig.from_environment()
+        container = get_cosmos_client(config)
+        
+        # Get job from Cosmos DB
+        try:
+            job_data = container.read_item(item=job_id, partition_key=job_id)
+        except Exception as cosmos_err:
+            logger.error(f"Cosmos DB read error for job {job_id}: {cosmos_err}")
+            return func.HttpResponse(
+                json.dumps({"error": f"Job not found: {job_id}"}),
+                status_code=404, mimetype="application/json"
+            )
+        
+        job = TranscriptionJob.from_dict(job_data)
+        
+        # Check if summary exists
+        if not job.llm_summary or not job.llm_summary.get('summary_text'):
+            return func.HttpResponse(
+                json.dumps({"error": "No summary available. Generate a summary first."}),
+                status_code=404, mimetype="application/json"
+            )
+        
+        # Create safe filename
+        safe_filename = ''.join(c for c in job.filename if c.isalnum() or c in '._- ')[:50]
+        txt_filename = f"clinical-summary-{safe_filename}.txt"
+        
+        summary_text = job.llm_summary['summary_text']
+        
+        return func.HttpResponse(
+            summary_text,
+            status_code=200,
+            mimetype="text/plain; charset=utf-8",
+            headers={
+                "Content-Disposition": f'attachment; filename="{txt_filename}"',
+                "Content-Length": str(len(summary_text.encode('utf-8')))
+            }
+        )
+    
+    except Exception as e:
+        logger.error(f"TXT endpoint error for job {job_id}: {e}")
+        return func.HttpResponse(
+            json.dumps({"error": f"Server error: {str(e)}"}),
+            status_code=500, mimetype="application/json"
+        )
+
+
 @app.route(route="jobs", methods=["GET"])
 def list_jobs(req: func.HttpRequest) -> func.HttpResponse:
     """List recent jobs"""

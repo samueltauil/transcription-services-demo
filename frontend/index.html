@@ -226,6 +226,10 @@
                                 <h3>AI-Powered Clinical Summary</h3>
                             </div>
                             <div class="summary-actions">
+                                <button class="secondary-btn pdf-btn" id="downloadPdf" disabled title="Download as PDF">
+                                    <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M20 2H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-8.5 7.5c0 .83-.67 1.5-1.5 1.5H9v2H7.5V7H10c.83 0 1.5.67 1.5 1.5v1zm5 2c0 .83-.67 1.5-1.5 1.5h-2.5V7H15c.83 0 1.5.67 1.5 1.5v3zm4-3H19v1h1.5V11H19v2h-1.5V7h3v1.5zM9 9.5h1v-1H9v1zM4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm10 5.5h1v-3h-1v3z"/></svg>
+                                    <span class="btn-text">Download PDF</span>
+                                </button>
                                 <button class="secondary-btn regenerate-btn" id="regenerateSummary" disabled>
                                     <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
                                     <span class="btn-text">Regenerate</span>
@@ -245,6 +249,17 @@
                             <div class="summary-error" id="summaryError" style="display: none;">
                                 <svg viewBox="0 0 24 24" width="20" height="20" fill="#d32f2f"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
                                 <span id="summaryErrorText">Error generating summary</span>
+                            </div>
+                        </div>
+                        <!-- PDF Error Toast -->
+                        <div class="pdf-toast" id="pdfToast" style="display: none;">
+                            <div class="toast-content">
+                                <svg viewBox="0 0 24 24" width="20" height="20" fill="#d32f2f"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
+                                <span id="pdfToastMessage">PDF generation failed</span>
+                            </div>
+                            <div class="toast-actions">
+                                <button class="toast-btn" id="downloadTxtFallback">Download as Text</button>
+                                <button class="toast-dismiss" id="dismissToast">✕</button>
                             </div>
                         </div>
                         <div class="summary-footer" id="summaryFooter" style="display: none;">
