@@ -8,6 +8,7 @@ on:
       - main
     paths:
       - 'function_app.py'
+      - 'pdf_generator.py'
       - 'requirements.txt'
       - 'host.json'
       - '.github/workflows/deploy-function.yml'
@@ -68,6 +69,7 @@ jobs:
         run: |
           zip -r deploy.zip \
             function_app.py \
+            pdf_generator.py \
             host.json \
             requirements.txt \
             .python_packages \
