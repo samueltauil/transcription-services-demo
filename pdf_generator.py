@@ -352,7 +352,7 @@ class ClinicalSummaryPDF(FPDF):
         if list_type == 'ul':
             self.set_font('Helvetica', '', 8)
             self.set_text_color(*COLORS['primary'])
-            self.cell(5, 5, chr(149))  # bullet character
+            self.cell(5, 5, '-')  # Use dash instead of bullet for compatibility
         else:
             self.set_font('Helvetica', 'B', 9)
             self.set_text_color(*COLORS['primary'])
@@ -362,8 +362,8 @@ class ClinicalSummaryPDF(FPDF):
         self.set_font('Helvetica', '', 10)
         self.set_text_color(*COLORS['text_primary'])
         
-        # Handle multi-line text
-        text_width = 170 - (indent - 20) - 8
+        # Handle multi-line text with safe minimum width
+        text_width = max(170 - (indent - 20) - 8, 50)
         self.multi_cell(text_width, 5.5, text)
     
     def add_inline_code(self, text: str):
@@ -433,7 +433,7 @@ class ClinicalSummaryPDF(FPDF):
         # Measure max content width for each column
         self.set_font('Helvetica', '', 9)
         col_widths = []
-        min_width = 25
+        min_width = 15  # Reduced minimum for many columns
         max_width = 80
         available_width = 170
         
@@ -450,11 +450,14 @@ class ClinicalSummaryPDF(FPDF):
         total_width = sum(col_widths)
         if total_width > available_width:
             scale = available_width / total_width
-            col_widths = [w * scale for w in col_widths]
+            col_widths = [max(w * scale, 10) for w in col_widths]  # Ensure minimum 10
         elif total_width < available_width:
             # Distribute extra space
             extra = (available_width - total_width) / num_cols
             col_widths = [w + extra for w in col_widths]
+        
+        # Final safety check - ensure all widths are at least 10
+        col_widths = [max(w, 10) for w in col_widths]
         
         row_height = 7
         
@@ -485,7 +488,12 @@ class ClinicalSummaryPDF(FPDF):
                 if col_idx < len(col_widths):
                     width = col_widths[col_idx]
                     self.set_xy(x_pos, y_pos)
-                    self.cell(width, row_height, cell['text'][:50], border=1, fill=True)
+                    # Truncate text to fit column width
+                    text = cell['text']
+                    max_chars = max(int(width / 2), 3)  # Rough estimate: 2 units per char
+                    if len(text) > max_chars:
+                        text = text[:max_chars-2] + '..'
+                    self.cell(width, row_height, text, border=1, fill=True)
                     x_pos += width
             
             self.ln(row_height)
