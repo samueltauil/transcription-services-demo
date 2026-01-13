@@ -240,50 +240,56 @@ class ClinicalSummaryPDF(FPDF):
         self.set_fill_color(*COLORS['surface'])
         self.set_draw_color(*COLORS['border'])
         
-        # Calculate box height based on content
+        content_width = self.w - self.l_margin - self.r_margin
         box_height = 20
         y_start = self.get_y()
         
-        # Draw box
-        self.rect(20, y_start, 170, box_height, 'DF')
+        # Draw box using margins
+        self.rect(self.l_margin, y_start, content_width, box_height, 'DF')
         
         self.set_font('Helvetica', '', 9)
         self.set_text_color(*COLORS['text_secondary'])
         
         # Row 1: Model and Tokens
-        self.set_xy(25, y_start + 3)
+        half_width = (content_width - 10) / 2
+        self.set_xy(self.l_margin + 5, y_start + 3)
         model = self.job_metadata.get('model', 'GPT-4o-mini')
-        self.cell(80, 6, f'Model: {model}', align='L')
+        self.cell(half_width, 6, f'Model: {model}', align='L')
         
         token_usage = self.job_metadata.get('token_usage', {})
         total_tokens = token_usage.get('total_tokens', '-')
-        self.cell(80, 6, f'Total Tokens: {total_tokens}', align='R')
+        self.cell(half_width, 6, f'Total Tokens: {total_tokens}', align='R')
         
         # Row 2: Cost estimate
-        self.set_xy(25, y_start + 11)
+        self.set_xy(self.l_margin + 5, y_start + 11)
         cost = token_usage.get('estimated_cost_usd')
         if cost is not None:
             cost_str = f'${cost:.6f}' if cost < 0.01 else f'${cost:.4f}'
-            self.cell(80, 6, f'Estimated Cost: {cost_str}', align='L')
+            self.cell(half_width, 6, f'Estimated Cost: {cost_str}', align='L')
         
         self.set_y(y_start + box_height + 8)
+        self.set_x(self.l_margin)
     
     def add_section_header(self, text: str, level: int = 2):
         """Add a styled section header"""
+        # Reset to left margin
+        self.set_x(self.l_margin)
+        
         # Check if we need a page break (orphan protection)
         if self.get_y() > 240:
             self.add_page()
         
         # Parse section number if present (e.g., "1. FINDINGS SUMMARY")
         section_match = re.match(r'^(\d+)\.\s*(.+)$', text)
+        content_width = self.w - self.l_margin - self.r_margin
         
         if level <= 2:
             # Major section header with background
-            self.ln(4)
+            self.ln(6)
             
             y_pos = self.get_y()
             self.set_fill_color(*COLORS['primary'])
-            self.rect(20, y_pos, 170, 10, 'F')
+            self.rect(self.l_margin, y_pos, content_width, 10, 'F')
             
             self.set_font('Helvetica', 'B', 11)
             self.set_text_color(*COLORS['text_light'])
@@ -291,41 +297,46 @@ class ClinicalSummaryPDF(FPDF):
             if section_match:
                 # Section number badge
                 num, title = section_match.groups()
-                self.set_xy(22, y_pos + 1.5)
+                self.set_xy(self.l_margin + 3, y_pos + 1.5)
                 self.set_fill_color(*COLORS['text_light'])
                 self.set_text_color(*COLORS['primary'])
                 self.cell(7, 7, num, align='C', fill=True)
                 self.set_text_color(*COLORS['text_light'])
-                self.set_xy(32, y_pos + 2)
-                self.cell(0, 6, title.upper())
+                self.set_xy(self.l_margin + 13, y_pos + 2)
+                self.cell(content_width - 15, 6, title.upper())
             else:
-                self.set_xy(25, y_pos + 2)
-                self.cell(0, 6, text.upper())
+                self.set_xy(self.l_margin + 5, y_pos + 2)
+                self.cell(content_width - 10, 6, text.upper())
             
             self.set_y(y_pos + 14)
+            self.set_x(self.l_margin)
         
         elif level == 3:
             # Subsection header
-            self.ln(3)
+            self.ln(4)
+            self.set_x(self.l_margin)
             self.set_font('Helvetica', 'B', 10)
             self.set_text_color(*COLORS['primary'])
-            self.cell(0, 7, text)
+            self.cell(content_width, 7, text)
             self.ln(7)
             
             # Underline
             y_pos = self.get_y()
             self.set_draw_color(*COLORS['primary'])
-            self.line(20, y_pos - 2, 100, y_pos - 2)
+            self.line(self.l_margin, y_pos - 2, self.l_margin + 80, y_pos - 2)
+            self.set_x(self.l_margin)
         
         else:
             # Minor header
-            self.ln(2)
+            self.ln(3)
+            self.set_x(self.l_margin)
             self.set_font('Helvetica', 'B', 9)
             self.set_text_color(*COLORS['primary_dark'])
-            self.cell(0, 6, text)
+            self.cell(content_width, 6, text)
             self.ln(6)
         
         self.set_text_color(*COLORS['text_primary'])
+        self.set_x(self.l_margin)
     
     def add_paragraph(self, text: str, bold: bool = False, italic: bool = False):
         """Add a paragraph of text"""
@@ -341,14 +352,14 @@ class ClinicalSummaryPDF(FPDF):
         self.set_font('Helvetica', style, 10)
         self.set_text_color(*COLORS['text_primary'])
         
-        # Ensure we're at a safe x position
-        if self.get_x() > self.l_margin + 5:
-            self.set_x(self.l_margin)
+        # Always reset to left margin for paragraphs
+        self.set_x(self.l_margin)
         
-        # Use available width with safety margin
-        available_width = self.w - self.l_margin - self.r_margin - 5
-        self.multi_cell(available_width, 5.5, text)
+        # Use full content width
+        content_width = self.w - self.l_margin - self.r_margin
+        self.multi_cell(content_width, 5.5, text)
         self.ln(2)
+        self.set_x(self.l_margin)
     
     def add_list_item(self, text: str, level: int = 1, list_type: str = 'ul', number: int = 1):
         """Add a list item with bullet or number"""
@@ -356,8 +367,9 @@ class ClinicalSummaryPDF(FPDF):
             return
         
         # Limit nesting level to prevent excessive indentation
-        level = min(level, 4)
-        indent = self.l_margin + (level - 1) * 6
+        level = min(level, 3)
+        indent = self.l_margin + (level - 1) * 5
+        bullet_width = 6
         
         self.set_font('Helvetica', '', 10)
         self.set_text_color(*COLORS['text_primary'])
@@ -365,56 +377,49 @@ class ClinicalSummaryPDF(FPDF):
         # Bullet or number
         self.set_x(indent)
         if list_type == 'ul':
-            self.set_font('Helvetica', '', 8)
+            self.set_font('Helvetica', 'B', 10)
             self.set_text_color(*COLORS['primary'])
-            self.cell(5, 5, '-')  # Use dash instead of bullet for compatibility
+            self.cell(bullet_width, 5, '-')
         else:
             self.set_font('Helvetica', 'B', 9)
             self.set_text_color(*COLORS['primary'])
-            self.cell(8, 5, f'{number}.')
+            self.cell(bullet_width + 2, 5, f'{number}.')
+            bullet_width += 2
         
-        # Text
+        # Text - calculate remaining width from current position
         self.set_font('Helvetica', '', 10)
         self.set_text_color(*COLORS['text_primary'])
         
-        # Calculate safe text width
-        current_x = self.get_x()
-        text_width = self.w - current_x - self.r_margin - 2
-        text_width = max(text_width, 60)  # Ensure minimum width
+        text_start_x = indent + bullet_width
+        text_width = self.w - text_start_x - self.r_margin
         
+        # Multi-cell for text wrapping
         self.multi_cell(text_width, 5.5, text)
+        self.set_x(self.l_margin)
     
     def add_inline_code(self, text: str):
         """Add inline code with green badge styling"""
         if not text:
             return
         
+        # For inline codes (like UMLS codes), just render as styled text inline
         # Check available space and add new line if needed
         available_width = self.w - self.r_margin - self.get_x()
-        if available_width < 20:
-            self.ln(5)
         
         self.set_font('Courier', '', 9)
+        text_width = self.get_string_width(text) + 6
+        
+        # If code won't fit on this line, start new line
+        if text_width > available_width:
+            self.ln(6)
+            self.set_x(self.l_margin)
+        
         self.set_fill_color(*COLORS['code_bg'])
         self.set_text_color(*COLORS['code_text'])
         
-        # Calculate width with safety margin, truncate if too long
-        max_width = min(available_width - 2, 150)
-        text_width = self.get_string_width(text) + 4
+        self.cell(text_width, 5.5, ' ' + text + ' ', fill=True)
         
-        display_text = text
-        if text_width > max_width:
-            # Truncate text to fit
-            while text_width > max_width and len(display_text) > 3:
-                display_text = display_text[:-1]
-                text_width = self.get_string_width(display_text + '..') + 4
-            display_text = display_text + '..'
-            text_width = self.get_string_width(display_text) + 4
-        
-        text_width = max(text_width, 10)  # Minimum width
-        self.cell(text_width, 5, display_text, fill=True)
-        
-        # Reset
+        # Reset font but stay on same line
         self.set_font('Helvetica', '', 10)
         self.set_text_color(*COLORS['text_primary'])
     
@@ -467,47 +472,42 @@ class ClinicalSummaryPDF(FPDF):
         if not rows:
             return
         
+        # Reset position
+        self.set_x(self.l_margin)
+        
         # Check for page break (tables need more space)
         if self.get_y() > 220:
             self.add_page()
         
-        self.ln(3)
+        self.ln(4)
         
         # Calculate column widths based on content
         num_cols = len(rows[0]['cells']) if rows else 0
         if num_cols == 0:
             return
         
+        content_width = self.w - self.l_margin - self.r_margin
+        
         # Measure max content width for each column
         self.set_font('Helvetica', '', 9)
         col_widths = []
-        min_width = 15  # Reduced minimum for many columns
-        max_width = 80
-        available_width = 170
         
         for col_idx in range(num_cols):
             max_content = 0
             for row in rows:
                 if col_idx < len(row['cells']):
                     cell = row['cells'][col_idx]
-                    width = self.get_string_width(cell['text']) + 6
+                    width = self.get_string_width(cell['text']) + 8
                     max_content = max(max_content, width)
-            col_widths.append(min(max(max_content, min_width), max_width))
+            col_widths.append(max(max_content, 20))  # Minimum 20
         
-        # Normalize widths to fit available space
+        # Scale to fit available width
         total_width = sum(col_widths)
-        if total_width > available_width:
-            scale = available_width / total_width
-            col_widths = [max(w * scale, 10) for w in col_widths]  # Ensure minimum 10
-        elif total_width < available_width:
-            # Distribute extra space
-            extra = (available_width - total_width) / num_cols
-            col_widths = [w + extra for w in col_widths]
+        if total_width != content_width:
+            scale = content_width / total_width
+            col_widths = [w * scale for w in col_widths]
         
-        # Final safety check - ensure all widths are at least 10
-        col_widths = [max(w, 10) for w in col_widths]
-        
-        row_height = 7
+        row_height = 8
         
         for row_idx, row in enumerate(rows):
             y_pos = self.get_y()
@@ -531,32 +531,41 @@ class ClinicalSummaryPDF(FPDF):
             self.set_text_color(*COLORS['text_primary'])
             self.set_draw_color(*COLORS['border'])
             
-            x_pos = 20
+            x_pos = self.l_margin
             for col_idx, cell in enumerate(row['cells']):
                 if col_idx < len(col_widths):
                     width = col_widths[col_idx]
                     self.set_xy(x_pos, y_pos)
-                    # Truncate text to fit column width
+                    
+                    # Truncate text smartly based on actual width
                     text = cell['text']
-                    max_chars = max(int(width / 2), 3)  # Rough estimate: 2 units per char
-                    if len(text) > max_chars:
-                        text = text[:max_chars-2] + '..'
+                    text_width = self.get_string_width(text)
+                    if text_width > width - 4:
+                        # Truncate to fit
+                        while self.get_string_width(text + '..') > width - 4 and len(text) > 1:
+                            text = text[:-1]
+                        text = text + '..' if len(cell['text']) > len(text) else text
+                    
                     self.cell(width, row_height, text, border=1, fill=True)
                     x_pos += width
             
             self.ln(row_height)
         
-        self.ln(3)
+        self.ln(4)
+        self.set_x(self.l_margin)
     
     def add_horizontal_rule(self):
         """Add a horizontal divider"""
+        self.set_x(self.l_margin)
         self.ln(3)
         y_pos = self.get_y()
+        content_width = self.w - self.l_margin - self.r_margin
         self.set_draw_color(*COLORS['border'])
         self.set_line_width(0.3)
-        self.dashed_line(20, y_pos, 190, y_pos, dash_length=2, space_length=2)
+        self.dashed_line(self.l_margin, y_pos, self.l_margin + content_width, y_pos, dash_length=2, space_length=2)
         self.set_line_width(0.2)
         self.ln(5)
+        self.set_x(self.l_margin)
 
 
 def parse_markdown_to_elements(markdown_text: str) -> List[Dict]:
