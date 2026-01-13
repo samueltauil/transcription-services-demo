@@ -187,10 +187,8 @@ class ClinicalSummaryPDF(FPDF):
         self.job_metadata = job_metadata or {}
         self.current_section = None
         
-        # Add Unicode font support
-        self.add_font('DejaVu', '', 'DejaVuSans.ttf', uni=True)
-        self.add_font('DejaVu', 'B', 'DejaVuSans-Bold.ttf', uni=True)
-        self.add_font('DejaVu', 'I', 'DejaVuSans-Oblique.ttf', uni=True)
+        # Use built-in fonts (Helvetica, Courier) - no TTF files needed
+        # These fonts support basic Latin characters
         
         # Set margins
         self.set_margins(20, 25, 20)
