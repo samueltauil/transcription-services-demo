@@ -329,6 +329,9 @@ class ClinicalSummaryPDF(FPDF):
     
     def add_paragraph(self, text: str, bold: bool = False, italic: bool = False):
         """Add a paragraph of text"""
+        if not text:
+            return
+        
         style = ''
         if bold:
             style = 'B'
@@ -337,12 +340,24 @@ class ClinicalSummaryPDF(FPDF):
         
         self.set_font('Helvetica', style, 10)
         self.set_text_color(*COLORS['text_primary'])
-        self.multi_cell(0, 5.5, text)
+        
+        # Ensure we're at a safe x position
+        if self.get_x() > self.l_margin + 5:
+            self.set_x(self.l_margin)
+        
+        # Use available width with safety margin
+        available_width = self.w - self.l_margin - self.r_margin - 5
+        self.multi_cell(available_width, 5.5, text)
         self.ln(2)
     
     def add_list_item(self, text: str, level: int = 1, list_type: str = 'ul', number: int = 1):
         """Add a list item with bullet or number"""
-        indent = 20 + (level - 1) * 8
+        if not text:
+            return
+        
+        # Limit nesting level to prevent excessive indentation
+        level = min(level, 4)
+        indent = self.l_margin + (level - 1) * 6
         
         self.set_font('Helvetica', '', 10)
         self.set_text_color(*COLORS['text_primary'])
@@ -356,25 +371,48 @@ class ClinicalSummaryPDF(FPDF):
         else:
             self.set_font('Helvetica', 'B', 9)
             self.set_text_color(*COLORS['primary'])
-            self.cell(5, 5, f'{number}.')
+            self.cell(8, 5, f'{number}.')
         
         # Text
         self.set_font('Helvetica', '', 10)
         self.set_text_color(*COLORS['text_primary'])
         
-        # Handle multi-line text with safe minimum width
-        text_width = max(170 - (indent - 20) - 8, 50)
+        # Calculate safe text width
+        current_x = self.get_x()
+        text_width = self.w - current_x - self.r_margin - 2
+        text_width = max(text_width, 60)  # Ensure minimum width
+        
         self.multi_cell(text_width, 5.5, text)
     
     def add_inline_code(self, text: str):
         """Add inline code with green badge styling"""
+        if not text:
+            return
+        
+        # Check available space and add new line if needed
+        available_width = self.w - self.r_margin - self.get_x()
+        if available_width < 20:
+            self.ln(5)
+        
         self.set_font('Courier', '', 9)
         self.set_fill_color(*COLORS['code_bg'])
         self.set_text_color(*COLORS['code_text'])
         
-        # Calculate width
+        # Calculate width with safety margin, truncate if too long
+        max_width = min(available_width - 2, 150)
         text_width = self.get_string_width(text) + 4
-        self.cell(text_width, 5, f' {text} ', fill=True)
+        
+        display_text = text
+        if text_width > max_width:
+            # Truncate text to fit
+            while text_width > max_width and len(display_text) > 3:
+                display_text = display_text[:-1]
+                text_width = self.get_string_width(display_text + '..') + 4
+            display_text = display_text + '..'
+            text_width = self.get_string_width(display_text) + 4
+        
+        text_width = max(text_width, 10)  # Minimum width
+        self.cell(text_width, 5, display_text, fill=True)
         
         # Reset
         self.set_font('Helvetica', '', 10)
@@ -382,15 +420,20 @@ class ClinicalSummaryPDF(FPDF):
     
     def add_code_block(self, text: str):
         """Add a code block with dark background"""
+        if not text:
+            return
+        
         self.ln(2)
         
+        # Reset to left margin
+        self.set_x(self.l_margin)
         y_start = self.get_y()
         
         # Calculate height needed
         self.set_font('Courier', '', 9)
         lines = text.split('\n')
         line_height = 4.5
-        block_height = len(lines) * line_height + 8
+        block_height = min(len(lines) * line_height + 8, 200)  # Cap height
         
         # Check for page break
         if self.get_y() + block_height > 270:
@@ -398,17 +441,22 @@ class ClinicalSummaryPDF(FPDF):
             y_start = self.get_y()
         
         # Dark background
+        block_width = self.w - self.l_margin - self.r_margin
         self.set_fill_color(30, 30, 30)
-        self.rect(20, y_start, 170, block_height, 'F')
+        self.rect(self.l_margin, y_start, block_width, block_height, 'F')
         
         # Code text
         self.set_text_color(212, 212, 212)
-        self.set_xy(24, y_start + 4)
+        self.set_xy(self.l_margin + 4, y_start + 4)
         
-        for line in lines:
+        max_lines = int((block_height - 8) / line_height)
+        for i, line in enumerate(lines[:max_lines]):
+            # Truncate long lines
+            if len(line) > 80:
+                line = line[:77] + '...'
             self.cell(0, line_height, line)
             self.ln(line_height)
-            self.set_x(24)
+            self.set_x(self.l_margin + 4)
         
         self.set_y(y_start + block_height + 4)
         self.set_text_color(*COLORS['text_primary'])
@@ -538,67 +586,89 @@ def generate_summary_pdf(
     Returns:
         PDF file as bytes
     """
-    pdf = ClinicalSummaryPDF(job_metadata or {})
-    pdf.alias_nb_pages()
-    pdf.add_page()
-    
-    # Add metadata box if we have metadata
-    if job_metadata:
-        pdf.add_metadata_box()
-    
-    # Parse markdown to elements
-    elements = parse_markdown_to_elements(summary_text)
-    
-    in_code_block = False
-    code_buffer = []
-    in_inline_code = False
-    
-    for element in elements:
-        elem_type = element.get('type')
+    try:
+        pdf = ClinicalSummaryPDF(job_metadata or {})
+        pdf.alias_nb_pages()
+        pdf.add_page()
         
-        if elem_type == 'header':
-            pdf.add_section_header(element['text'], element['level'])
+        # Add metadata box if we have metadata
+        if job_metadata:
+            try:
+                pdf.add_metadata_box()
+            except Exception as e:
+                logger.warning(f"Failed to add metadata box: {e}")
         
-        elif elem_type == 'text':
-            if not in_code_block:
-                pdf.add_paragraph(
-                    element['text'],
-                    bold=element.get('bold', False),
-                    italic=element.get('italic', False)
-                )
+        # Parse markdown to elements
+        elements = parse_markdown_to_elements(summary_text)
         
-        elif elem_type == 'list_item':
-            pdf.add_list_item(
-                element['text'],
-                level=element.get('level', 1),
-                list_type=element.get('list_type', 'ul'),
-                number=element.get('number', 1)
-            )
+        in_code_block = False
+        code_buffer = []
         
-        elif elem_type == 'table':
-            pdf.add_table(element['rows'])
+        for element in elements:
+            try:
+                elem_type = element.get('type')
+                
+                # Reset position if we've drifted too far right
+                if pdf.get_x() > pdf.w - 30:
+                    pdf.ln(5)
+                    pdf.set_x(pdf.l_margin)
+                
+                if elem_type == 'header':
+                    pdf.add_section_header(element['text'], element['level'])
+                
+                elif elem_type == 'text':
+                    if not in_code_block:
+                        pdf.add_paragraph(
+                            element['text'],
+                            bold=element.get('bold', False),
+                            italic=element.get('italic', False)
+                        )
+                
+                elif elem_type == 'list_item':
+                    pdf.add_list_item(
+                        element['text'],
+                        level=element.get('level', 1),
+                        list_type=element.get('list_type', 'ul'),
+                        number=element.get('number', 1)
+                    )
+                
+                elif elem_type == 'table':
+                    pdf.add_table(element['rows'])
+                
+                elif elem_type == 'inline_code':
+                    pdf.add_inline_code(element['text'])
+                
+                elif elem_type == 'code_block_start':
+                    in_code_block = True
+                    code_buffer = []
+                
+                elif elem_type == 'code_block_content':
+                    code_buffer.append(element['text'])
+                
+                elif elem_type == 'code_block_end':
+                    if code_buffer:
+                        pdf.add_code_block('\n'.join(code_buffer))
+                    in_code_block = False
+                    code_buffer = []
+                
+                elif elem_type == 'paragraph_end':
+                    pass  # Spacing handled in paragraph
+                    
+            except Exception as elem_error:
+                logger.warning(f"Failed to render element {elem_type}: {elem_error}")
+                # Try to recover by adding a line break
+                try:
+                    pdf.ln(5)
+                    pdf.set_x(pdf.l_margin)
+                except:
+                    pass
         
-        elif elem_type == 'inline_code':
-            pdf.add_inline_code(element['text'])
+        # Return PDF as bytes
+        return bytes(pdf.output())
         
-        elif elem_type == 'code_block_start':
-            in_code_block = True
-            code_buffer = []
-        
-        elif elem_type == 'code_block_content':
-            code_buffer.append(element['text'])
-        
-        elif elem_type == 'code_block_end':
-            if code_buffer:
-                pdf.add_code_block('\n'.join(code_buffer))
-            in_code_block = False
-            code_buffer = []
-        
-        elif elem_type == 'paragraph_end':
-            pass  # Spacing handled in paragraph
-    
-    # Return PDF as bytes
-    return bytes(pdf.output())
+    except Exception as e:
+        logger.error(f"PDF generation failed: {e}")
+        raise
 
 
 # Convenience function for direct text-to-PDF conversion
