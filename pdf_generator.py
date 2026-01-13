@@ -170,25 +170,12 @@ def parse_summary_content(text: str) -> List[Dict]:
             i += 1
             continue
         
-        # Regular text paragraphs - collect consecutive lines
-        para_lines = [stripped]
-        i += 1
-        while i < len(lines):
-            next_line = lines[i].strip()
-            # Stop at empty line or special formatting
-            if not next_line:
-                break
-            if re.match(r'^(#{1,4}|[-*+]|\d+[.)]|\|)', next_line):
-                break
-            if next_line.startswith('**') and ':' in next_line:
-                break
-            para_lines.append(next_line)
-            i += 1
-        
+        # Regular text paragraphs - treat as single line to avoid over-merging
         elements.append({
             'type': 'paragraph',
-            'text': ' '.join(para_lines)
+            'text': stripped
         })
+        i += 1
     
     return elements
 
@@ -260,6 +247,10 @@ def generate_summary_pdf(
     
     # Parse content
     elements = parse_summary_content(summary_text)
+    
+    logger.info(f"Parsed {len(elements)} elements from summary")
+    for i, elem in enumerate(elements[:5]):
+        logger.info(f"Element {i}: type={elem.get('type')}, text={str(elem.get('text', elem.get('label', '')))[:50]}")
     
     # Render each element
     for element in elements:
@@ -470,7 +461,7 @@ def _render_label(pdf: ClinicalReportPDF, element: Dict, width: float):
 
 
 def _render_table(pdf: ClinicalReportPDF, element: Dict, width: float):
-    """Render data table with professional styling"""
+    """Render data table with professional styling - compact size"""
     headers = element.get('headers', [])
     rows = element.get('rows', [])
     
@@ -478,49 +469,48 @@ def _render_table(pdf: ClinicalReportPDF, element: Dict, width: float):
         return
     
     # Page break check
-    needed_height = (len(rows) + 2) * 8
+    row_height = 6  # Smaller row height
+    needed_height = (len(rows) + 2) * row_height + 10
     if pdf.get_y() + needed_height > 260:
         pdf.add_page()
     
-    pdf.ln(4)
+    pdf.ln(3)
     
     num_cols = len(headers) if headers else (len(rows[0]) if rows else 0)
     if num_cols == 0:
         return
     
-    # Calculate column widths
-    pdf.set_font('Helvetica', '', 9)
-    col_widths = []
+    # Use smaller font for tables
+    pdf.set_font('Helvetica', '', 8)
     
+    # Calculate column widths - more compact
+    col_widths = []
     for col in range(num_cols):
-        max_w = 20  # Minimum width
+        max_w = 15  # Smaller minimum
         
-        # Check header width
         if col < len(headers):
-            w = pdf.get_string_width(str(headers[col])) + 10
+            w = pdf.get_string_width(str(headers[col])) + 6
             max_w = max(max_w, w)
         
-        # Check data widths
         for row in rows:
             if col < len(row):
-                w = pdf.get_string_width(str(row[col])) + 10
-                max_w = max(max_w, min(w, 80))  # Cap at 80
+                w = pdf.get_string_width(str(row[col])) + 6
+                max_w = max(max_w, min(w, 60))  # Cap at 60
         
         col_widths.append(max_w)
     
-    # Scale columns to fit
+    # Scale to fit but use less than full width for compact look
     total = sum(col_widths)
-    if total != width:
-        scale = width / total
+    max_table_width = min(width, 160)  # Cap table width
+    if total > max_table_width:
+        scale = max_table_width / total
         col_widths = [w * scale for w in col_widths]
-    
-    row_height = 8
     
     # Header row
     if headers:
         pdf.set_fill_color(*pdf.COLOR_PRIMARY)
         pdf.set_text_color(255, 255, 255)
-        pdf.set_font('Helvetica', 'B', 9)
+        pdf.set_font('Helvetica', 'B', 8)
         
         x = 20
         y = pdf.get_y()
@@ -542,9 +532,9 @@ def _render_table(pdf: ClinicalReportPDF, element: Dict, width: float):
         
         pdf.ln(row_height)
     
-    # Data rows
+    # Data rows - smaller font
     pdf.set_text_color(*pdf.COLOR_SECONDARY)
-    pdf.set_font('Helvetica', '', 9)
+    pdf.set_font('Helvetica', '', 8)
     
     for row_idx, row in enumerate(rows):
         y = pdf.get_y()
@@ -568,7 +558,7 @@ def _render_table(pdf: ClinicalReportPDF, element: Dict, width: float):
                 
                 # Truncate if needed
                 display = str(cell)
-                while pdf.get_string_width(display) > w - 6 and len(display) > 3:
+                while pdf.get_string_width(display) > w - 4 and len(display) > 3:
                     display = display[:-1]
                 if len(display) < len(str(cell)):
                     display = display[:-2] + '..'
@@ -578,7 +568,7 @@ def _render_table(pdf: ClinicalReportPDF, element: Dict, width: float):
         
         pdf.ln(row_height)
     
-    pdf.ln(4)
+    pdf.ln(3)
 
 
 # Public convenience function
