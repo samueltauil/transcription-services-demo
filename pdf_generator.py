@@ -96,10 +96,21 @@ def parse_summary_content(text: str) -> List[Dict]:
     """
     Parse markdown content into structured elements.
     Designed for reliability with clinical summary format.
+    Handles:
+    - Headers (# ## ### ####)
+    - Tables (|col|col|)
+    - Bullets (- item, * item, + item)
+    - Nested/indented bullets (  - item)
+    - Numbered items (1. item, 1) item)
+    - Bold labels (**Label:** value)
+    - Bold labels with content on following lines
+    - Plain paragraphs
     """
     elements = []
     lines = text.split('\n')
     i = 0
+    
+    logger.info(f"Parsing {len(lines)} lines of text")
     
     while i < len(lines):
         line = lines[i]
@@ -110,15 +121,17 @@ def parse_summary_content(text: str) -> List[Dict]:
             i += 1
             continue
         
-        # Headers: ## Header Text
-        header_match = re.match(r'^(#{1,4})\s+(.+)$', stripped)
+        # Headers: ## Header Text (also handle ### 1. Header format)
+        header_match = re.match(r'^(#{1,4})\s+(?:\d+\.\s*)?(.+)$', stripped)
         if header_match:
             level = len(header_match.group(1))
+            header_text = header_match.group(2).strip()
             elements.append({
                 'type': 'header',
                 'level': level,
-                'text': header_match.group(2).strip()
+                'text': header_text
             })
+            logger.debug(f"Found header level {level}: {header_text[:40]}")
             i += 1
             continue
         
@@ -136,15 +149,21 @@ def parse_summary_content(text: str) -> List[Dict]:
                     'headers': table_data['headers'],
                     'rows': table_data['rows']
                 })
+                logger.debug(f"Found table with {len(table_data['headers'])} cols, {len(table_data['rows'])} rows")
             continue
         
-        # Bullet points: - Item or * Item
-        bullet_match = re.match(r'^[-*+]\s+(.+)$', stripped)
+        # Bullet points: - Item or * Item (including indented)
+        # Match lines starting with optional whitespace, then -, *, or +
+        bullet_match = re.match(r'^(\s*)[-*+]\s+(.+)$', line)
         if bullet_match:
+            indent = len(bullet_match.group(1))
+            bullet_text = bullet_match.group(2).strip()
             elements.append({
                 'type': 'bullet',
-                'text': bullet_match.group(1).strip()
+                'text': bullet_text,
+                'indent': indent
             })
+            logger.debug(f"Found bullet (indent {indent}): {bullet_text[:40]}")
             i += 1
             continue
         
@@ -159,24 +178,51 @@ def parse_summary_content(text: str) -> List[Dict]:
             i += 1
             continue
         
-        # Bold label lines: **Label:** Value
+        # Bold label lines: **Label:** Value or **Label**
+        # This could have content on the same line or following lines
         bold_match = re.match(r'^\*\*([^*]+)\*\*:?\s*(.*)$', stripped)
         if bold_match:
+            label = bold_match.group(1).strip()
+            value = bold_match.group(2).strip() if bold_match.group(2) else ''
+            
+            # If the label is a section-like heading (e.g., "Negated Findings", "Key Clinical Insights")
+            # and value is empty, look ahead for content
+            if not value and i + 1 < len(lines):
+                next_line = lines[i + 1].strip()
+                # Check if next line is content (not a header, not a new bold label, not empty)
+                if next_line and not next_line.startswith('#') and not next_line.startswith('**'):
+                    # It's content following the label - collect it as the value
+                    pass  # Value stays empty, the next line will be parsed as paragraph/bullet
+            
             elements.append({
                 'type': 'label',
-                'label': bold_match.group(1).strip(),
-                'value': bold_match.group(2).strip() if bold_match.group(2) else ''
+                'label': label,
+                'value': value
+            })
+            logger.debug(f"Found label: {label}: {value[:40] if value else '(empty)'}")
+            i += 1
+            continue
+        
+        # Colon-based labels without bold: Label: Value
+        colon_match = re.match(r'^([A-Z][A-Za-z\s]{2,30}):\s+(.+)$', stripped)
+        if colon_match:
+            elements.append({
+                'type': 'label',
+                'label': colon_match.group(1).strip(),
+                'value': colon_match.group(2).strip()
             })
             i += 1
             continue
         
-        # Regular text paragraphs - treat as single line to avoid over-merging
+        # Regular text paragraphs
         elements.append({
             'type': 'paragraph',
             'text': stripped
         })
+        logger.debug(f"Found paragraph: {stripped[:40]}")
         i += 1
     
+    logger.info(f"Total parsed elements: {len(elements)}")
     return elements
 
 
@@ -191,15 +237,36 @@ def _parse_table(lines: List[str]) -> Optional[Dict]:
         if re.match(r'^[\|\s\-:]+$', line):
             continue
         
-        # Split by | and clean up
-        cells = line.split('|')
-        cells = [c.strip() for c in cells if c.strip()]
+        # Split by | and clean up each cell
+        # Handle both |col1|col2| and col1|col2 formats
+        cells = []
+        parts = line.split('|')
+        for p in parts:
+            cell = p.strip()
+            # Don't skip empty cells in the middle - they matter for alignment
+            # Only skip the first/last if they're empty (from leading/trailing |)
+            cells.append(cell)
+        
+        # Remove empty leading/trailing cells from |col1|col2| format
+        if cells and cells[0] == '':
+            cells = cells[1:]
+        if cells and cells[-1] == '':
+            cells = cells[:-1]
         
         if cells:
             rows.append(cells)
+            logger.debug(f"Parsed table row with {len(cells)} cells: {cells}")
     
     if not rows:
         return None
+    
+    # Ensure all rows have the same number of columns
+    max_cols = max(len(r) for r in rows)
+    for row in rows:
+        while len(row) < max_cols:
+            row.append('')  # Pad short rows
+    
+    logger.info(f"Parsed table: {max_cols} cols, {len(rows)} rows")
     
     return {
         'headers': rows[0],
@@ -389,21 +456,33 @@ def _render_paragraph(pdf: ClinicalReportPDF, element: Dict, width: float):
 
 
 def _render_bullet(pdf: ClinicalReportPDF, element: Dict, width: float):
-    """Render bullet point item"""
+    """Render bullet point item with indent support"""
     text = _clean_text(element.get('text', ''))
     if not text:
         return
     
-    # Bullet character
+    # Calculate indent based on nesting level
+    indent = element.get('indent', 0)
+    base_x = 24 + (indent // 2) * 6  # Extra indent for nested items
+    
+    # Bullet character - use different symbols for nested levels
     pdf.set_font('Helvetica', 'B', 10)
     pdf.set_text_color(*pdf.COLOR_ACCENT)
-    pdf.set_x(24)
-    pdf.cell(6, 5.5, chr(8226))
+    pdf.set_x(base_x)
+    
+    bullet_char = chr(8226)  # Default bullet •
+    if indent > 0:
+        bullet_char = chr(9702)  # White bullet ◦ for nested
+    
+    pdf.cell(6, 5.5, bullet_char)
     
     # Item text
     pdf.set_font('Helvetica', '', 10)
     pdf.set_text_color(*pdf.COLOR_SECONDARY)
-    pdf.multi_cell(width - 10, 5.5, text)
+    
+    # Adjust width for indentation
+    text_width = width - (base_x - 20) - 6
+    pdf.multi_cell(text_width, 5.5, text)
 
 
 def _render_numbered(pdf: ClinicalReportPDF, element: Dict, width: float):
@@ -461,85 +540,91 @@ def _render_label(pdf: ClinicalReportPDF, element: Dict, width: float):
 
 
 def _render_table(pdf: ClinicalReportPDF, element: Dict, width: float):
-    """Render data table with professional styling - compact size"""
+    """Render data table with professional styling - handles all cells properly"""
     headers = element.get('headers', [])
     rows = element.get('rows', [])
     
     if not headers and not rows:
         return
     
-    # Page break check
-    row_height = 6  # Smaller row height
-    needed_height = (len(rows) + 2) * row_height + 10
-    if pdf.get_y() + needed_height > 260:
-        pdf.add_page()
-    
-    pdf.ln(3)
-    
     num_cols = len(headers) if headers else (len(rows[0]) if rows else 0)
     if num_cols == 0:
         return
     
+    logger.info(f"Rendering table: {num_cols} columns, {len(rows)} data rows")
+    
+    # Page break check
+    row_height = 7  # Standard row height
+    needed_height = (len(rows) + 2) * row_height + 10
+    if pdf.get_y() + needed_height > 260:
+        pdf.add_page()
+    
+    pdf.ln(4)
+    
     # Use smaller font for tables
     pdf.set_font('Helvetica', '', 8)
     
-    # Calculate column widths - more compact
+    # Calculate column widths based on content
     col_widths = []
     for col in range(num_cols):
-        max_w = 15  # Smaller minimum
+        max_w = 20  # Minimum column width
         
+        # Check header width
         if col < len(headers):
-            w = pdf.get_string_width(str(headers[col])) + 6
+            header_text = str(headers[col])
+            w = pdf.get_string_width(header_text) + 8
             max_w = max(max_w, w)
         
+        # Check all row cells for this column
         for row in rows:
             if col < len(row):
-                w = pdf.get_string_width(str(row[col])) + 6
-                max_w = max(max_w, min(w, 60))  # Cap at 60
+                cell_text = str(row[col]) if row[col] else ''
+                w = pdf.get_string_width(cell_text) + 8
+                max_w = max(max_w, min(w, 55))  # Cap individual column at 55
         
         col_widths.append(max_w)
     
-    # Scale to fit but use less than full width for compact look
+    # Scale to fit available width
     total = sum(col_widths)
-    max_table_width = min(width, 160)  # Cap table width
+    max_table_width = min(width, 170)  # Allow more table width
+    
     if total > max_table_width:
         scale = max_table_width / total
-        col_widths = [w * scale for w in col_widths]
+        col_widths = [max(w * scale, 18) for w in col_widths]  # Ensure minimum width
     
-    # Header row
+    logger.debug(f"Column widths: {col_widths}")
+    
+    # Draw header row
     if headers:
         pdf.set_fill_color(*pdf.COLOR_PRIMARY)
         pdf.set_text_color(255, 255, 255)
         pdf.set_font('Helvetica', 'B', 8)
         
-        x = 20
-        y = pdf.get_y()
+        x_start = 20
+        y_start = pdf.get_y()
+        x = x_start
         
-        for idx, header in enumerate(headers):
-            if idx < len(col_widths):
-                w = col_widths[idx]
-                pdf.set_xy(x, y)
-                
-                # Truncate if needed
-                display = str(header)
-                while pdf.get_string_width(display) > w - 6 and len(display) > 3:
-                    display = display[:-1]
-                if len(display) < len(str(header)):
-                    display = display[:-2] + '..'
-                
-                pdf.cell(w, row_height, display, border=1, fill=True, align='C')
-                x += w
+        for idx in range(num_cols):
+            w = col_widths[idx]
+            pdf.set_xy(x, y_start)
+            
+            # Get header text, truncate if needed
+            header_text = str(headers[idx]) if idx < len(headers) else ''
+            display = _truncate_text(pdf, header_text, w - 4)
+            
+            pdf.cell(w, row_height, display, border=1, fill=True, align='C')
+            x += w
         
         pdf.ln(row_height)
     
-    # Data rows - smaller font
+    # Draw data rows
     pdf.set_text_color(*pdf.COLOR_SECONDARY)
     pdf.set_font('Helvetica', '', 8)
     
     for row_idx, row in enumerate(rows):
         y = pdf.get_y()
         
-        # Page break
+        # Page break check
         if y + row_height > 265:
             pdf.add_page()
             y = pdf.get_y()
@@ -551,24 +636,35 @@ def _render_table(pdf: ClinicalReportPDF, element: Dict, width: float):
             pdf.set_fill_color(255, 255, 255)
         
         x = 20
-        for idx, cell in enumerate(row):
-            if idx < len(col_widths):
-                w = col_widths[idx]
-                pdf.set_xy(x, y)
-                
-                # Truncate if needed
-                display = str(cell)
-                while pdf.get_string_width(display) > w - 4 and len(display) > 3:
-                    display = display[:-1]
-                if len(display) < len(str(cell)):
-                    display = display[:-2] + '..'
-                
-                pdf.cell(w, row_height, display, border=1, fill=True)
-                x += w
+        for col_idx in range(num_cols):
+            w = col_widths[col_idx]
+            pdf.set_xy(x, y)
+            
+            # Get cell content, handle missing cells
+            cell_text = str(row[col_idx]) if col_idx < len(row) and row[col_idx] else ''
+            display = _truncate_text(pdf, cell_text, w - 4)
+            
+            pdf.cell(w, row_height, display, border=1, fill=True)
+            x += w
         
         pdf.ln(row_height)
     
-    pdf.ln(3)
+    pdf.ln(4)
+
+
+def _truncate_text(pdf: FPDF, text: str, max_width: float) -> str:
+    """Truncate text to fit within max_width, adding ellipsis if needed"""
+    if not text:
+        return ''
+    
+    if pdf.get_string_width(text) <= max_width:
+        return text
+    
+    # Progressively truncate
+    while len(text) > 3 and pdf.get_string_width(text + '..') > max_width:
+        text = text[:-1]
+    
+    return text + '..' if len(text) < len(text) else text
 
 
 # Public convenience function
