@@ -282,15 +282,15 @@ def _render_bullet_item(pdf: ClinicalReportPDF, text: str, indent_spaces: int, w
     # Determine if this is a label-style bullet (ends with colon)
     is_label = text.endswith(':') and len(text) < 80
     
-    # Draw bullet
+    # Draw bullet - use ASCII characters since Helvetica doesn't support Unicode
     pdf.set_x(base_x)
-    pdf.set_font('Helvetica', '', 10)
+    pdf.set_font('Helvetica', 'B', 10)
     pdf.set_text_color(*pdf.COLOR_ACCENT)
     
     if indent_level == 0:
-        bullet = chr(8226)  # •
+        bullet = '-'  # Primary bullet
     else:
-        bullet = chr(9702)  # ◦
+        bullet = '>'  # Nested bullet
     
     pdf.cell(5, 5, bullet)
     
