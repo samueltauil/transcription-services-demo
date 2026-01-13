@@ -474,6 +474,9 @@ def _render_bullet(pdf: ClinicalReportPDF, element: Dict, width: float):
     indent = element.get('indent', 0)
     base_x = 24 + (indent // 2) * 6  # Extra indent for nested items
     
+    # Check if this is a label-style bullet (ends with colon, like "**Label**:")
+    is_label_bullet = text.endswith(':') and len(text) < 60
+    
     # Bullet character - use different symbols for nested levels
     pdf.set_font('Helvetica', 'B', 10)
     pdf.set_text_color(*pdf.COLOR_ACCENT)
@@ -485,13 +488,25 @@ def _render_bullet(pdf: ClinicalReportPDF, element: Dict, width: float):
     
     pdf.cell(6, 5.5, bullet_char)
     
-    # Item text
-    pdf.set_font('Helvetica', '', 10)
-    pdf.set_text_color(*pdf.COLOR_SECONDARY)
+    # Item text - use bold for label-style bullets
+    if is_label_bullet:
+        pdf.set_font('Helvetica', 'B', 10)
+        pdf.set_text_color(*pdf.COLOR_PRIMARY)
+    else:
+        pdf.set_font('Helvetica', '', 10)
+        pdf.set_text_color(*pdf.COLOR_SECONDARY)
     
     # Adjust width for indentation
     text_width = width - (base_x - 20) - 6
+    
+    # Use multi_cell for text wrapping, then ensure we move to next line
+    start_y = pdf.get_y()
     pdf.multi_cell(text_width, 5.5, text)
+    
+    # Ensure proper spacing after bullet
+    if pdf.get_y() == start_y:
+        # multi_cell didn't advance, force line break
+        pdf.ln(5.5)
 
 
 def _render_numbered(pdf: ClinicalReportPDF, element: Dict, width: float):
