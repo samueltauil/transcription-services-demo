@@ -316,8 +316,17 @@ def generate_summary_pdf(
     elements = parse_summary_content(summary_text)
     
     logger.info(f"Parsed {len(elements)} elements from summary")
-    for i, elem in enumerate(elements[:5]):
-        logger.info(f"Element {i}: type={elem.get('type')}, text={str(elem.get('text', elem.get('label', '')))[:50]}")
+    # Log all elements for debugging
+    for i, elem in enumerate(elements):
+        elem_type = elem.get('type')
+        if elem_type == 'header':
+            logger.info(f"Element {i}: HEADER level {elem.get('level')}: {elem.get('text', '')[:60]}")
+        elif elem_type == 'table':
+            logger.info(f"Element {i}: TABLE with {len(elem.get('headers',[]))} cols, {len(elem.get('rows',[]))} rows")
+        elif elem_type == 'label':
+            logger.info(f"Element {i}: LABEL '{elem.get('label', '')}' = '{elem.get('value', '')[:40]}'")
+        else:
+            logger.info(f"Element {i}: {elem_type.upper()}: {str(elem.get('text', ''))[:50]}")
     
     # Render each element
     for element in elements:
@@ -505,24 +514,35 @@ def _render_numbered(pdf: ClinicalReportPDF, element: Dict, width: float):
 
 
 def _render_label(pdf: ClinicalReportPDF, element: Dict, width: float):
-    """Render bold label with optional value"""
+    """Render bold label with optional value - handles subsection headers too"""
     label = _clean_text(element.get('label', ''))
     value = _clean_text(element.get('value', ''))
     
     if not label:
         return
     
-    pdf.set_x(24)
-    
-    # Bold label
-    pdf.set_font('Helvetica', 'B', 10)
-    pdf.set_text_color(*pdf.COLOR_PRIMARY)
-    label_text = label + ':'
-    label_width = pdf.get_string_width(label_text) + 3
-    pdf.cell(label_width, 5.5, label_text)
-    
-    # Value
-    if value:
+    # If no value, this is likely a subsection header - render it more prominently
+    if not value:
+        # Render as a subsection header (like ### level header)
+        pdf.ln(2)
+        pdf.set_font('Helvetica', 'B', 10)
+        pdf.set_text_color(*pdf.COLOR_PRIMARY)
+        pdf.set_x(22)
+        pdf.cell(width - 4, 6, label)
+        pdf.ln(7)
+        pdf.set_text_color(*pdf.COLOR_SECONDARY)
+    else:
+        # Regular label: value pair
+        pdf.set_x(24)
+        
+        # Bold label
+        pdf.set_font('Helvetica', 'B', 10)
+        pdf.set_text_color(*pdf.COLOR_PRIMARY)
+        label_text = label + ':'
+        label_width = pdf.get_string_width(label_text) + 3
+        pdf.cell(label_width, 5.5, label_text)
+        
+        # Value
         pdf.set_font('Helvetica', '', 10)
         pdf.set_text_color(*pdf.COLOR_SECONDARY)
         remaining_width = width - label_width - 8
@@ -535,8 +555,6 @@ def _render_label(pdf: ClinicalReportPDF, element: Dict, width: float):
         else:
             pdf.cell(remaining_width, 5.5, value)
             pdf.ln(5.5)
-    else:
-        pdf.ln(5.5)
 
 
 def _render_table(pdf: ClinicalReportPDF, element: Dict, width: float):
@@ -564,21 +582,25 @@ def _render_table(pdf: ClinicalReportPDF, element: Dict, width: float):
     # Use smaller font for tables
     pdf.set_font('Helvetica', '', 8)
     
-    # Calculate column widths based on content
+    # Clean all table content first (remove markdown formatting like **bold**)
+    headers = [_clean_text(str(h)) for h in headers]
+    rows = [[_clean_text(str(cell)) if cell else '' for cell in row] for row in rows]
+    
+    # Calculate column widths based on cleaned content
     col_widths = []
     for col in range(num_cols):
         max_w = 20  # Minimum column width
         
         # Check header width
         if col < len(headers):
-            header_text = str(headers[col])
+            header_text = headers[col]
             w = pdf.get_string_width(header_text) + 8
             max_w = max(max_w, w)
         
         # Check all row cells for this column
         for row in rows:
             if col < len(row):
-                cell_text = str(row[col]) if row[col] else ''
+                cell_text = row[col]
                 w = pdf.get_string_width(cell_text) + 8
                 max_w = max(max_w, min(w, 55))  # Cap individual column at 55
         
@@ -608,8 +630,8 @@ def _render_table(pdf: ClinicalReportPDF, element: Dict, width: float):
             w = col_widths[idx]
             pdf.set_xy(x, y_start)
             
-            # Get header text, truncate if needed
-            header_text = str(headers[idx]) if idx < len(headers) else ''
+            # Get header text (already cleaned), truncate if needed
+            header_text = headers[idx] if idx < len(headers) else ''
             display = _truncate_text(pdf, header_text, w - 4)
             
             pdf.cell(w, row_height, display, border=1, fill=True, align='C')
@@ -640,8 +662,8 @@ def _render_table(pdf: ClinicalReportPDF, element: Dict, width: float):
             w = col_widths[col_idx]
             pdf.set_xy(x, y)
             
-            # Get cell content, handle missing cells
-            cell_text = str(row[col_idx]) if col_idx < len(row) and row[col_idx] else ''
+            # Get cell content (already cleaned), handle missing cells
+            cell_text = row[col_idx] if col_idx < len(row) else ''
             display = _truncate_text(pdf, cell_text, w - 4)
             
             pdf.cell(w, row_height, display, border=1, fill=True)
