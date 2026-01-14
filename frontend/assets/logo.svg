@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 50">
+  <defs>
+    <linearGradient id="healthGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0d9488"/>
+      <stop offset="100%" stop-color="#14b8a6"/>
+    </linearGradient>
+    <linearGradient id="aiGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#6366f1"/>
+      <stop offset="100%" stop-color="#8b5cf6"/>
+    </linearGradient>
+  </defs>
+  
+  <!-- Medical Cross with rounded corners -->
+  <g transform="translate(5, 5)">
+    <!-- Cross background circle -->
+    <circle cx="20" cy="20" r="20" fill="url(#healthGradient)" opacity="0.15"/>
+    <!-- Medical cross -->
+    <path d="M14 8h12v8h8v12h-8v8H14v-8H6V16h8V8z" fill="url(#healthGradient)" rx="2"/>
+    <!-- Inner highlight -->
+    <path d="M17 11h6v6h6v6h-6v6h-6v-6h-6v-6h6v-6z" fill="white" opacity="0.3"/>
+  </g>
+  
+  <!-- AI Waveform -->
+  <g transform="translate(50, 12)">
+    <path d="M0 13 Q5 13 7 8 T14 13 T21 4 T28 13 T35 10 T42 13" 
+          stroke="url(#aiGradient)" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+    <circle cx="7" cy="8" r="2" fill="#6366f1"/>
+    <circle cx="21" cy="4" r="2.5" fill="#7c3aed"/>
+    <circle cx="35" cy="10" r="2" fill="#8b5cf6"/>
+  </g>
+  
+  <!-- Text -->
+  <text x="98" y="22" font-family="Segoe UI, system-ui, sans-serif" font-size="14" font-weight="600" fill="currentColor">
+    Health<tspan fill="url(#healthGradient)">Transcribe</tspan>
+  </text>
+  <text x="98" y="36" font-family="Segoe UI, system-ui, sans-serif" font-size="9" fill="currentColor" opacity="0.7">
+    AI-Powered Clinical Intelligence
+  </text>
+</svg>
