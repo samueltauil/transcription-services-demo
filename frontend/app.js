@@ -304,6 +304,9 @@ async function checkStatus() {
                 updateStatus('analyze', 'completed');
                 updateStatus('complete', 'completed');
                 statusMessage.textContent = 'Processing complete!';
+                // Hide spinner on completion
+                const spinner = document.getElementById('statusSpinner');
+                if (spinner) spinner.classList.add('hidden');
                 await loadResults();
                 resetUploadButton();
                 break;
@@ -321,13 +324,72 @@ async function checkStatus() {
 }
 
 /**
- * Update status step
+ * Update status step and progress bar
  */
 function updateStatus(step, state) {
     const stepEl = document.querySelector(`.status-step[data-step="${step}"]`);
     if (stepEl) {
         stepEl.classList.remove('active', 'completed', 'error');
         stepEl.classList.add(state);
+    }
+    
+    // Update progress bar and badge
+    updateProgressBar();
+    updateStatusBadge(state);
+}
+
+/**
+ * Update the progress bar based on completed steps
+ */
+function updateProgressBar() {
+    const steps = ['upload', 'transcribe', 'analyze', 'complete'];
+    const progressFill = document.getElementById('statusProgressFill');
+    const progressText = document.getElementById('statusProgressText');
+    
+    if (!progressFill || !progressText) return;
+    
+    let completedCount = 0;
+    let hasActive = false;
+    
+    steps.forEach((step, index) => {
+        const stepEl = document.querySelector(`.status-step[data-step="${step}"]`);
+        if (stepEl) {
+            if (stepEl.classList.contains('completed')) {
+                completedCount = index + 1;
+            } else if (stepEl.classList.contains('active')) {
+                hasActive = true;
+                completedCount = index + 0.5; // Halfway through current step
+            }
+        }
+    });
+    
+    const percentage = Math.round((completedCount / steps.length) * 100);
+    progressFill.style.width = `${percentage}%`;
+    progressText.textContent = `${percentage}%`;
+}
+
+/**
+ * Update the status badge
+ */
+function updateStatusBadge(state) {
+    const badge = document.getElementById('statusBadge');
+    if (!badge) return;
+    
+    badge.classList.remove('completed', 'error');
+    
+    if (state === 'completed') {
+        // Check if all steps are completed
+        const allCompleted = Array.from(document.querySelectorAll('.status-step'))
+            .every(step => step.classList.contains('completed'));
+        if (allCompleted) {
+            badge.textContent = 'Completed';
+            badge.classList.add('completed');
+        }
+    } else if (state === 'error') {
+        badge.textContent = 'Error';
+        badge.classList.add('error');
+    } else {
+        badge.textContent = 'In Progress';
     }
 }
 
@@ -338,6 +400,20 @@ function resetStatus() {
     document.querySelectorAll('.status-step').forEach(step => {
         step.classList.remove('active', 'completed', 'error');
     });
+    
+    // Reset progress bar
+    const progressFill = document.getElementById('statusProgressFill');
+    const progressText = document.getElementById('statusProgressText');
+    const badge = document.getElementById('statusBadge');
+    const spinner = document.getElementById('statusSpinner');
+    
+    if (progressFill) progressFill.style.width = '0%';
+    if (progressText) progressText.textContent = '0%';
+    if (badge) {
+        badge.textContent = 'In Progress';
+        badge.classList.remove('completed', 'error');
+    }
+    if (spinner) spinner.classList.remove('hidden');
 }
 
 /**
@@ -349,6 +425,11 @@ function updateCurrentStepToError() {
         activeStep.classList.remove('active');
         activeStep.classList.add('error');
     }
+    updateStatusBadge('error');
+    
+    // Hide spinner on error
+    const spinner = document.getElementById('statusSpinner');
+    if (spinner) spinner.classList.add('hidden');
 }
 
 /**
