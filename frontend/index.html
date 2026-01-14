@@ -152,18 +152,18 @@
             <section class="results-section" id="resultsSection" style="display: none;">
                 <h2>Analysis Results</h2>
                 
-                <!-- Cost Savings Banner -->
-                <div class="cost-savings-banner" id="costSavingsBanner">
-                    <div class="savings-info">
-                        <span class="savings-label">Cost Savings with Azure:</span>
-                        <span class="savings-value" id="actualSavings">$0.00</span>
-                        <span class="savings-details" id="savingsDetails">(0 min audio)</span>
-                    </div>
-                    <div class="cost-breakdown">
-                        <span class="cost-item-small">TranscribeMe: <strong id="transcribemeCostActual">$0.00</strong></span>
-                        <span class="cost-vs">vs</span>
-                        <span class="cost-item-small azure">Azure: <strong id="azureCostActual">$0.00</strong></span>
-                    </div>
+                <!-- Cost Savings Chip (subtle) -->
+                <div class="cost-savings-chip" id="costSavingsBanner">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+                    </svg>
+                    <span class="chip-label">Azure Savings:</span>
+                    <span class="chip-value" id="actualSavings">$0.00</span>
+                    <span class="chip-divider">|</span>
+                    <span class="chip-detail">
+                        <span id="transcribemeCostActual">$0.00</span> → <span id="azureCostActual">$0.00</span>
+                    </span>
+                    <span class="chip-detail-muted" id="savingsDetails">(0 min)</span>
                 </div>
                 
                 <!-- Summary Cards -->

@@ -603,61 +603,48 @@ header h1 {
     font-style: normal;
 }
 
-/* Cost Savings Banner */
-.cost-savings-banner {
-    background: linear-gradient(135deg, var(--success) 0%, #0d6610 100%);
-    color: var(--surface);
-    border-radius: var(--radius);
-    padding: 1rem 1.5rem;
-    margin-bottom: 1.5rem;
-    display: flex;
-    justify-content: space-between;
+/* Cost Savings Chip (subtle inline display) */
+.cost-savings-chip {
+    display: inline-flex;
     align-items: center;
-    flex-wrap: wrap;
-    gap: 1rem;
-}
-
-.savings-info {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    flex-wrap: wrap;
-}
-
-.savings-label {
-    font-weight: 500;
-}
-
-.savings-value {
-    font-size: 1.5rem;
-    font-weight: 700;
-}
-
-.savings-details {
-    opacity: 0.85;
-    font-size: 0.9rem;
-}
-
-.cost-breakdown {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    background: rgba(255, 255, 255, 0.15);
+    gap: 0.5rem;
+    background: var(--success-light);
+    color: var(--success);
+    border: 1px solid var(--success);
+    border-radius: var(--radius-xl);
     padding: 0.5rem 1rem;
-    border-radius: 20px;
+    margin-bottom: 1.25rem;
+    font-size: 0.8125rem;
+    flex-wrap: wrap;
 }
 
-.cost-item-small {
-    font-size: 0.85rem;
+.cost-savings-chip svg {
+    flex-shrink: 0;
 }
 
-.cost-item-small.azure {
-    color: #90EE90;
+.chip-label {
+    font-weight: 500;
+    color: var(--text-secondary);
 }
 
-.cost-vs {
-    opacity: 0.7;
-    font-size: 0.8rem;
+.chip-value {
+    font-weight: 700;
+    color: var(--success);
+}
+
+.chip-divider {
+    color: var(--border);
+    opacity: 0.5;
+}
+
+.chip-detail {
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+}
+
+.chip-detail-muted {
+    color: var(--text-tertiary);
+    font-size: 0.75rem;
 }
 
 /* Summary Cards */
