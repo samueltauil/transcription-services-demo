@@ -31,10 +31,15 @@ State-of-the-art audio-to-text conversion powered by Azure Speech Services Fast 
 - Real-time processing feedback
 - Batch transcription capabilities
 
+**Advanced Audio Processing:**
+- 🗣️ **Real-time Speaker Diarization** — Automatic speaker identification and separation
+- 🎙️ **Multi-speaker Recognition** — Distinguish between doctor, patient, and other participants
+- ⏱️ **Timestamp Precision** — Word-level timing for accurate playback sync
+
 ![Upload Interface](docs/upload-interface.png)
 
 ### 🏥 **Medical Entity Recognition (NER)**
-Advanced clinical entity extraction using Azure Text Analytics for Health, identifying **33+ entity types**:
+Advanced clinical entity extraction using Azure Text Analytics for Health, identifying **33+ entity types** with intelligent context:
 
 | Category | Entities |
 |----------|----------|
@@ -45,6 +50,11 @@ Advanced clinical entity extraction using Azure Text Analytics for Health, ident
 | **Demographics** | Age, gender, ethnicity, occupation |
 | **Clinical Attributes** | Measurements, test results, vital signs |
 | **Healthcare Personnel** | Physicians, nurses, specialists, caregivers |
+
+**Advanced Features:**
+- 🎯 **Assertion Detection** — Negation, uncertainty, and conditional detection (e.g., "no signs of infection")
+- 🔗 **UMLS Entity Linking** — Automatic linking to Unified Medical Language System codes
+- 📊 **Confidence Scoring** — Entity extraction confidence levels
 
 ![Medical Entities Extraction](docs/medical-entities.png)
 
@@ -96,44 +106,38 @@ Professional, responsive interface with healthcare-focused design:
 
 ## 🏗️ Architecture
 
-```
-┌──────────────────────────────────────────────────────────────────────────┐
-│                          Azure Static Web App                            │
-│  ┌────────────────────────────────────────────────────────────────┐     │
-│  │  Modern Frontend (HTML/CSS/JS)                                 │     │
-│  │  • Dark/Light Mode  • Responsive Design  • Real-time Updates   │     │
-│  └────────────────────────────────────────────────────────────────┘     │
-└──────────────────────────────┬───────────────────────────────────────────┘
-                               │ HTTPS/REST API
-                               ▼
-┌──────────────────────────────────────────────────────────────────────────┐
-│                        Azure Functions (Python)                          │
-│  ┌────────────────────────────────────────────────────────────────┐     │
-│  │  Serverless Backend API                                        │     │
-│  │  • Audio Upload  • Job Management  • Result Processing         │     │
-│  │  • Managed Identity Authentication (Zero Keys)                 │     │
-│  └────────────────────────────────────────────────────────────────┘     │
-└────┬──────────────────────────┬──────────────────────────┬──────────────┘
-     │                          │                          │
-     ▼                          ▼                          ▼
-┌────────────────┐    ┌──────────────────┐    ┌──────────────────────────┐
-│ Azure Speech   │    │ Text Analytics   │    │   Blob Storage           │
-│   Services     │    │   for Health     │    │   (Audio Files)          │
-│                │    │                  │    │                          │
-│ Fast           │    │ Medical NER      │    │ Managed Identity Auth    │
-│ Transcription  │    │ Relationships    │    │ Lifecycle Management     │
-│ API            │    │ FHIR Export      │    │                          │
-└────────────────┘    └──────────────────┘    └──────────────────────────┘
-                               │
-                               ▼
-                      ┌──────────────────┐
-                      │   Cosmos DB      │
-                      │   (Serverless)   │
-                      │                  │
-                      │ Job Results      │
-                      │ Processing State │
-                      │ Managed Identity │
-                      └──────────────────┘
+```mermaid
+graph TB
+    subgraph Frontend["🌐 Azure Static Web App"]
+        UI["Modern UI<br/>• Dark/Light Mode<br/>• Real-time Updates<br/>• Responsive Design"]
+    end
+
+    subgraph Backend["⚡ Azure Functions (Python)"]
+        API["Serverless API<br/>• Audio Upload<br/>• Job Management<br/>• Managed Identity Auth"]
+    end
+
+    subgraph AI["🤖 Azure AI Services"]
+        Speech["Speech Services<br/>• Fast Transcription<br/>• Speaker Diarization<br/>• Multi-channel"]
+        TAH["Text Analytics for Health<br/>• Medical NER (33+ types)<br/>• Assertion Detection<br/>• UMLS Linking<br/>• Relationships<br/>• FHIR R4 Export"]
+    end
+
+    subgraph Storage["💾 Data Layer"]
+        Blob["Blob Storage<br/>Audio Files"]
+        Cosmos["Cosmos DB<br/>Results & State"]
+    end
+
+    UI -->|HTTPS/REST| API
+    API -->|Managed Identity| Speech
+    API -->|Managed Identity| TAH
+    API -->|Managed Identity| Blob
+    API -->|Managed Identity| Cosmos
+    Speech -->|Transcription| API
+    TAH -->|Clinical Entities| API
+
+    style Frontend fill:#0d9488,stroke:#14b8a6,color:#fff
+    style Backend fill:#6366f1,stroke:#818cf8,color:#fff
+    style AI fill:#8b5cf6,stroke:#a78bfa,color:#fff
+    style Storage fill:#06b6d4,stroke:#22d3ee,color:#fff
 ```
 
 ### 🔐 Security Features

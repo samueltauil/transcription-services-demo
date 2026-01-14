@@ -9,7 +9,8 @@ const fs = require('fs');
     args: ['--no-sandbox', '--disable-setuid-sandbox']
   });
   const context = await browser.newContext({
-    viewport: { width: 1920, height: 1080 }
+    viewport: { width: 2560, height: 1440 },
+    deviceScaleFactor: 2  // Retina/HiDPI for sharper images
   });
   const page = await context.newPage();
 
@@ -65,30 +66,40 @@ const fs = require('fs');
         // Wait for results to render
         await page.waitForTimeout(2000);
         
-        // 4. Capture medical entities
+        // 4. Capture medical entities - full section with scroll
         console.log('Capturing medical-entities.png...');
-        const entitiesSection = await page.locator('#medicalEntities, .entities-section, [id*="entities"]').first();
+        const entitiesSection = await page.locator('#medicalEntities, .entities-section, .card:has-text("Medical Entities")').first();
         if (await entitiesSection.isVisible()) {
+          // Scroll the section into view and wait
+          await entitiesSection.scrollIntoViewIfNeeded();
+          await page.waitForTimeout(500);
           await entitiesSection.screenshot({ 
-            path: path.join(__dirname, 'docs', 'medical-entities.png')
+            path: path.join(__dirname, 'docs', 'medical-entities.png'),
+            type: 'png'
           });
         }
         
-        // 5. Capture relationships
+        // 5. Capture relationships - full section
         console.log('Capturing relationships.png...');
-        const relationshipsSection = await page.locator('#relationships, .relationships-section, [id*="relationship"]').first();
+        const relationshipsSection = await page.locator('#relationships, .relationships-section, .card:has-text("Relationships")').first();
         if (await relationshipsSection.isVisible()) {
+          await relationshipsSection.scrollIntoViewIfNeeded();
+          await page.waitForTimeout(500);
           await relationshipsSection.screenshot({ 
-            path: path.join(__dirname, 'docs', 'relationships.png')
+            path: path.join(__dirname, 'docs', 'relationships.png'),
+            type: 'png'
           });
         }
         
-        // 6. Capture FHIR export
+        // 6. Capture FHIR export - with more context
         console.log('Capturing fhir-export.png...');
-        const fhirSection = await page.locator('#fhirBundle, .fhir-section, [id*="fhir"]').first();
+        const fhirSection = await page.locator('#fhirBundle, .fhir-section, .card:has-text("FHIR")').first();
         if (await fhirSection.isVisible()) {
+          await fhirSection.scrollIntoViewIfNeeded();
+          await page.waitForTimeout(500);
           await fhirSection.screenshot({ 
-            path: path.join(__dirname, 'docs', 'fhir-export.png')
+            path: path.join(__dirname, 'docs', 'fhir-export.png'),
+            type: 'png'
           });
         }
         
