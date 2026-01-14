@@ -100,8 +100,6 @@ Professional, responsive interface with healthcare-focused design:
 - **Real-time Updates** — Live processing status with progress tracking
 - **Animated Feedback** — Smooth transitions and loading states
 
-![Dark Mode](docs/dark-mode.png)
-
 ---
 
 ## Architecture
