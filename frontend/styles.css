@@ -151,7 +151,11 @@ header::before {
 .logo-img {
     height: 48px;
     width: auto;
-    filter: brightness(0) invert(1);
+}
+
+/* Make logo text white in header (dark background) */
+header .logo-img {
+    color: white;
 }
 
 /* Theme toggle */
