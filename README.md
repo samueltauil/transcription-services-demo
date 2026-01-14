@@ -14,15 +14,15 @@
 
 ---
 
-## 🌟 Overview
+## Overview
 
 HealthTranscribe is a production-ready, enterprise-grade application that transforms medical audio recordings into structured clinical data. Built with Azure AI Services, it delivers accurate transcription, intelligent medical entity extraction, relationship mapping, and standards-compliant FHIR R4 export — all through an intuitive, modern interface.
 
-![Application Dashboard](docs/dashboard.png)
+![Application Interface](docs/hero-section.png)
 
-## ✨ Key Features
+## Key Features
 
-### 🎤 **High-Accuracy Speech Transcription**
+### **High-Accuracy Speech Transcription**
 State-of-the-art audio-to-text conversion powered by Azure Speech Services Fast Transcription API.
 
 **Supported Formats:**
@@ -32,13 +32,13 @@ State-of-the-art audio-to-text conversion powered by Azure Speech Services Fast 
 - Batch transcription capabilities
 
 **Advanced Audio Processing:**
-- 🗣️ **Real-time Speaker Diarization** — Automatic speaker identification and separation
-- 🎙️ **Multi-speaker Recognition** — Distinguish between doctor, patient, and other participants
-- ⏱️ **Timestamp Precision** — Word-level timing for accurate playback sync
+- **Real-time Speaker Diarization** — Automatic speaker identification and separation
+- **Multi-speaker Recognition** — Distinguish between doctor, patient, and other participants
+- **Timestamp Precision** — Word-level timing for accurate playback sync
 
 ![Upload Interface](docs/upload-interface.png)
 
-### 🏥 **Medical Entity Recognition (NER)**
+### **Medical Entity Recognition (NER)**
 Advanced clinical entity extraction using Azure Text Analytics for Health, identifying **33+ entity types** with intelligent context:
 
 | Category | Entities |
@@ -52,34 +52,34 @@ Advanced clinical entity extraction using Azure Text Analytics for Health, ident
 | **Healthcare Personnel** | Physicians, nurses, specialists, caregivers |
 
 **Advanced Features:**
-- 🎯 **Assertion Detection** — Negation, uncertainty, and conditional detection (e.g., "no signs of infection")
-- 🔗 **UMLS Entity Linking** — Automatic linking to Unified Medical Language System codes
-- 📊 **Confidence Scoring** — Entity extraction confidence levels
+- **Assertion Detection** — Negation, uncertainty, and conditional detection (e.g., "no signs of infection")
+- **UMLS Entity Linking** — Automatic linking to Unified Medical Language System codes
+- **Confidence Scoring** — Entity extraction confidence levels
 
 ![Medical Entities Extraction](docs/medical-entities.png)
 
-### 🔗 **Intelligent Relationship Mapping**
+### **Intelligent Relationship Mapping**
 Contextual analysis that connects related medical entities:
 
-- 💊 **Drug → Dosage** — Medication quantities and administration
-- 🏥 **Condition → Body Structure** — Disease localization
-- ⏰ **Symptom → Time** — Temporal expressions
-- 📊 **Measurement → Qualifier** — Clinical values with context
-- 🩺 **Procedure → Anatomy** — Treatment locations
+- **Drug → Dosage** — Medication quantities and administration
+- **Condition → Body Structure** — Disease localization
+- **Symptom → Time** — Temporal expressions
+- **Measurement → Qualifier** — Clinical values with context
+- **Procedure → Anatomy** — Treatment locations
 
 ![Entity Relationships](docs/relationships.png)
 
-### 📋 **FHIR R4 Standard Compliance**
+### **FHIR R4 Standard Compliance**
 Seamless healthcare interoperability with HL7 FHIR R4 Bundle export:
 
-- ✅ Standards-compliant resource generation
-- 🔄 EHR system integration ready
-- 📦 Complete observation and condition resources
-- 🔐 Privacy-preserving data structures
+- Standards-compliant resource generation
+- EHR system integration ready
+- Complete observation and condition resources
+- Privacy-preserving data structures
 
 ![FHIR Export](docs/fhir-export.png)
 
-### 💰 **99% Cost Reduction**
+### **99% Cost Reduction**
 Dramatic cost savings compared to traditional medical transcription services:
 
 | Service | Cost per Minute | 100 Hours/Month |
@@ -90,38 +90,38 @@ Dramatic cost savings compared to traditional medical transcription services:
 
 **Monthly Savings:** Up to **$4,700** for 100 hours of transcription
 
-### 🎨 **Modern Enterprise UI/UX**
+### **Modern Enterprise UI/UX**
 Professional, responsive interface with healthcare-focused design:
 
-- 🌓 **Dark/Light Mode** — System preference detection + manual toggle
-- 🎨 **Healthcare Color Palette** — Teal primary with indigo accents
-- 📱 **Fully Responsive** — Desktop, tablet, and mobile optimized
-- ♿ **Accessibility First** — WCAG 2.1 AA compliant
-- ⚡ **Real-time Updates** — Live processing status with progress tracking
-- 🔄 **Animated Feedback** — Smooth transitions and loading states
+- **Dark/Light Mode** — System preference detection + manual toggle
+- **Healthcare Color Palette** — Teal primary with indigo accents
+- **Fully Responsive** — Desktop, tablet, and mobile optimized
+- **Accessibility First** — WCAG 2.1 AA compliant
+- **Real-time Updates** — Live processing status with progress tracking
+- **Animated Feedback** — Smooth transitions and loading states
 
 ![Dark Mode](docs/dark-mode.png)
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
 ```mermaid
 graph TB
-    subgraph Frontend["🌐 Azure Static Web App"]
+    subgraph Frontend["Azure Static Web App"]
         UI["Modern UI<br/>• Dark/Light Mode<br/>• Real-time Updates<br/>• Responsive Design"]
     end
 
-    subgraph Backend["⚡ Azure Functions (Python)"]
+    subgraph Backend["Azure Functions (Python)"]
         API["Serverless API<br/>• Audio Upload<br/>• Job Management<br/>• Managed Identity Auth"]
     end
 
-    subgraph AI["🤖 Azure AI Services"]
+    subgraph AI["Azure AI Services"]
         Speech["Speech Services<br/>• Fast Transcription<br/>• Speaker Diarization<br/>• Multi-channel"]
         TAH["Text Analytics for Health<br/>• Medical NER (33+ types)<br/>• Assertion Detection<br/>• UMLS Linking<br/>• Relationships<br/>• FHIR R4 Export"]
     end
 
-    subgraph Storage["💾 Data Layer"]
+    subgraph Storage["Data Layer"]
         Blob["Blob Storage<br/>Audio Files"]
         Cosmos["Cosmos DB<br/>Results & State"]
     end
@@ -140,26 +140,26 @@ graph TB
     style Storage fill:#06b6d4,stroke:#22d3ee,color:#fff
 ```
 
-### 🔐 Security Features
+### Security Features
 
-- **🔑 Zero Secrets Architecture** — All services use Azure Managed Identity
-- **🚫 disableLocalAuth Enforced** — No API keys in code or configuration
-- **🛡️ RBAC** — Least-privilege role assignments
-- **🔒 Network Security** — VNet integration ready
-- **📊 Audit Logging** — Application Insights monitoring
-- **🏥 HIPAA Compliant** — Healthcare data handling best practices
+- **Zero Secrets Architecture** — All services use Azure Managed Identity
+- **disableLocalAuth Enforced** — No API keys in code or configuration
+- **RBAC** — Least-privilege role assignments
+- **Network Security** — VNet integration ready
+- **Audit Logging** — Application Insights monitoring
+- **HIPAA Compliant** — Healthcare data handling best practices
 
 ---
 
-## 🚀 Quick Deploy
+## Quick Deploy
 
 ### **Prerequisites**
 
-- ✅ Azure Subscription ([Create free account](https://azure.microsoft.com/free/))
-- ✅ GitHub Account
-- ✅ Azure CLI (optional, for manual deployment)
+- Azure Subscription ([Create free account](https://azure.microsoft.com/free/))
+- GitHub Account
+- Azure CLI (optional, for manual deployment)
 
-### **Option 1: Automated GitHub Actions Deploy** ⚡ *Recommended*
+### **Option 1: Automated GitHub Actions Deploy** (Recommended)
 
 **Step 1: Fork & Configure**
 ```bash
@@ -180,7 +180,7 @@ az ad sp create-for-rbac --name "github-transcription-sp" \
   --scopes /subscriptions/{subscription-id} \
   --sdk-auth
 ```
-📋 **Copy the entire JSON output** — you'll need it next.
+**Copy the entire JSON output** — you'll need it next.
 
 **Step 3: Configure GitHub Secrets**
 
@@ -220,7 +220,7 @@ Run workflows in order:
 1. **"Deploy Function App"** — Backend API
 2. **"Deploy Frontend"** — Static Web App
 
-✅ **Done!** Your application is now live.
+**Done!** Your application is now live.
 
 ---
 
@@ -251,7 +251,7 @@ swa deploy ./frontend --deployment-token <token> --env production
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 transcription-services-demo/
@@ -289,7 +289,7 @@ transcription-services-demo/
 
 ---
 
-## 🔌 API Reference
+## API Reference
 
 ### Endpoints
 
@@ -341,7 +341,7 @@ GET /api/status/{job_id}
 
 ---
 
-## ☁️ Azure Resources
+## Azure Resources
 
 | Resource | SKU/Tier | Purpose | Cost (Est.) |
 |----------|----------|---------|-------------|
@@ -359,15 +359,15 @@ GET /api/status/{job_id}
 ### Resource Configuration
 
 All resources are configured with:
-- ✅ **Managed Identity** for authentication
-- ✅ **RBAC** role assignments
-- ✅ **disableLocalAuth** enforced (no keys)
-- ✅ **Application Insights** integration
-- ✅ **Diagnostic logging** enabled
+- **Managed Identity** for authentication
+- **RBAC** role assignments
+- **disableLocalAuth** enforced (no keys)
+- **Application Insights** integration
+- **Diagnostic logging** enabled
 
 ---
 
-## 🛠️ Local Development
+## Local Development
 
 ### Setup
 
@@ -433,7 +433,7 @@ Frontend runs on `http://localhost:8080`
 
 ---
 
-## 🧪 Testing
+## Testing
 
 ### Test Health Endpoint
 ```bash
@@ -453,15 +453,15 @@ curl http://localhost:7071/api/status/<job-id>
 
 ---
 
-## 📊 Monitoring & Observability
+## Monitoring & Observability
 
 ### Application Insights
 
 All telemetry is sent to Azure Application Insights:
-- 📈 **Request metrics** — API call rates and latencies
-- 🐛 **Exception tracking** — Error rates and stack traces
-- 📊 **Custom events** — Job processing stages
-- 🔍 **Dependency tracking** — Azure service calls
+- **Request metrics** — API call rates and latencies
+- **Exception tracking** — Error rates and stack traces
+- **Custom events** — Job processing stages
+- **Dependency tracking** — Azure service calls
 
 ### Key Metrics to Monitor
 
@@ -487,7 +487,7 @@ traces
 
 ---
 
-## 🔧 Configuration
+## Configuration
 
 ### Environment Variables
 
@@ -514,7 +514,7 @@ const CONFIG = {
 
 ---
 
-## 📚 Documentation & Resources
+## Documentation & Resources
 
 ### Azure Services
 - [Azure Speech Services Documentation](https://learn.microsoft.com/azure/ai-services/speech-service/)
@@ -536,7 +536,7 @@ const CONFIG = {
 
 ---
 
-## 🤝 Contributing
+## Contributing
 
 Contributions are welcome! Please follow these guidelines:
 
@@ -553,7 +553,7 @@ Contributions are welcome! Please follow these guidelines:
 
 ---
 
-## 🐛 Troubleshooting
+## Troubleshooting
 
 ### Common Issues
 
@@ -571,19 +571,19 @@ Contributions are welcome! Please follow these guidelines:
 
 ### Getting Help
 
-- 📖 Check [Azure Documentation](https://learn.microsoft.com/azure/)
-- 💬 Open an [Issue](https://github.com/samueltauil/transcription-services-demo/issues)
-- 📧 Contact support
+- Check [Azure Documentation](https://learn.microsoft.com/azure/)
+- Open an [Issue](https://github.com/samueltauil/transcription-services-demo/issues)
+- Contact support
 
 ---
 
-## 📝 License
+## License
 
 This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
 
 ---
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 - **Azure AI Services** for Speech and Language capabilities
 - **Microsoft Healthcare** team for FHIR integration guidance
@@ -593,7 +593,7 @@ This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) 
 
 <div align="center">
 
-**Built with ❤️ using Azure**
+**Built with Azure**
 
 [![Deploy to Azure](https://aka.ms/deploytoazurebutton)](https://portal.azure.com/#create/Microsoft.Template/uri/https%3A%2F%2Fraw.githubusercontent.com%2Fsamueltauil%2Ftranscription-services-demo%2Fmain%2Finfra%2Fmain.bicep)
 
