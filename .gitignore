@@ -63,6 +63,12 @@ venv.bak/
 local.settings.json
 .python_packages/
 
+# Node.js
+node_modules/
+npm-debug.log
+yarn-error.log
+package-lock.json
+
 bin/
 obj/
 
