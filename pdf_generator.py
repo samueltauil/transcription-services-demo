@@ -242,8 +242,10 @@ def _render_section_header(pdf: ClinicalReportPDF, text: str, level: int, width:
     if not text:
         return
     
-    # Page break protection for headers
-    if pdf.get_y() > 250:
+    # For main headers, we need more space protection to keep header with content
+    # Check if we're too close to bottom - use lower threshold for headers
+    # This ensures header stays with at least some content
+    if pdf.get_y() > 220:  # Lower threshold - leave more room for content
         pdf.add_page()
     
     pdf.ln(4)
@@ -399,10 +401,8 @@ def _render_table_simple(pdf: ClinicalReportPDF, table_lines: List[str], width: 
     
     logger.info(f"Rendering table: {num_cols} cols, {len(data_rows)} data rows")
     
-    # Page break check
-    if pdf.get_y() + (len(data_rows) + 2) * 7 > 260:
-        pdf.add_page()
-    
+    # DON'T force page break for tables - render header row at minimum on current page
+    # Individual rows will handle page breaks as needed
     pdf.ln(4)
     
     # Calculate column widths
