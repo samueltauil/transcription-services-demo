@@ -20,6 +20,23 @@ HealthTranscribe is a production-ready, enterprise-grade application that transf
 
 ![Application Interface](docs/hero-section.png)
 
+## 🎥 Video Walkthrough
+
+Watch a complete walkthrough demonstration of the system in action:
+
+📹 **[System Walkthrough Video](docs/AITranscriptionTextAnalyticsApp.mp4)**
+
+This screencast demonstrates:
+- End-to-end audio transcription workflow
+- Medical entity extraction and visualization
+- Relationship mapping between clinical entities
+- FHIR R4 export functionality
+- UI/UX features including dark mode
+
+*Special thanks to @hannahalisha1 for creating this comprehensive walkthrough.*
+
+---
+
 ## Key Features
 
 ### **High-Accuracy Speech Transcription**
@@ -583,6 +600,7 @@ This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) 
 
 ## Acknowledgments
 
+- **@hannahalisha1** for creating the comprehensive system walkthrough video
 - **Azure AI Services** for Speech and Language capabilities
 - **Microsoft Healthcare** team for FHIR integration guidance
 - **Open Source Community** for inspiration and best practices
