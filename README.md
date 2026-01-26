@@ -9,7 +9,6 @@
 [![Live Demo](https://img.shields.io/badge/demo-live-success?style=for-the-badge)](https://lemon-meadow-03ec82310.4.azurestaticapps.net/)
 [![Azure](https://img.shields.io/badge/Azure-0078D4?style=for-the-badge&logo=microsoft-azure&logoColor=white)](https://azure.microsoft.com)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)](LICENSE)
-[![Instagram](https://img.shields.io/badge/@expiredemulsions-E4405F?style=for-the-badge&logo=instagram&logoColor=white)](https://instagram.com/expiredemulsions)
 
 </div>
 
